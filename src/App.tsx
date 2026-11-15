@@ -26,12 +26,12 @@ export default function App(): JSX.Element {
         userSelect: 'none',
         WebkitUserSelect: 'none',
         touchAction: 'none',
-        backgroundColor: '#03050e',
+        backgroundColor: '#010206',
       }}
     >
       <Canvas
         dpr={[1, 1.75]}
-        camera={{ position: [0, 0, 9], fov: 50 }}
+        camera={{ position: [0, 0, 9], fov: 50, near: 0.1, far: 500 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
       >
         <Suspense fallback={null}>
