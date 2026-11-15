@@ -26,7 +26,7 @@ export default function App(): JSX.Element {
         userSelect: 'none',
         WebkitUserSelect: 'none',
         touchAction: 'none',
-        backgroundColor: '#010206',
+        backgroundColor: '#000000',
       }}
     >
       <Canvas
