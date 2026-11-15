@@ -24,6 +24,13 @@ function getRandomWaypoint(currentTierY?: number): THREE.Vector3 {
   return new THREE.Vector3(x, y, z);
 }
 
+function lerpAngle(current: number, target: number, step: number) {
+  let diff = (target - current) % (Math.PI * 2);
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return current + diff * Math.min(1, step);
+}
+
 /**
  * Xoay xương an toàn trong không gian cục bộ (Local Space) trên Quaternion gốc của file .dae.
  * Tuyệt đối không bị Gimbal Lock hay sai lệch Bind-Pose.
@@ -33,6 +40,16 @@ function rotateBoneLocal(bone: THREE.Bone | undefined, rx: number, ry: number, r
   tempEuler.set(rx, ry, rz, 'XYZ');
   tempQuat.setFromEuler(tempEuler);
   bone.quaternion.copy(bone.userData.restQuat).multiply(tempQuat);
+}
+
+/**
+ * Khôi phục cả Quaternion và Position gốc cho toàn bộ xương
+ */
+function resetAllBones(bones: Record<string, THREE.Bone>) {
+  Object.values(bones).forEach((b) => {
+    if (b.userData.restQuat) b.quaternion.copy(b.userData.restQuat);
+    if (b.userData.restPos) b.position.copy(b.userData.restPos);
+  });
 }
 
 // =============================================================================
@@ -136,7 +153,7 @@ function SpaceRippleMeshSystem({ manager }: { manager: RippleManager }) {
       }
 
       rGroup.visible = true;
-      rGroup.position.set(r.x, r.y + 0.015, r.z);
+      rGroup.position.set(r.x, r.y + 0.012, r.z);
 
       const radius = THREE.MathUtils.lerp(r.startRadius, r.maxRadius, Math.sqrt(p));
       const opacity = r.maxOpacity * (1 - p);
@@ -202,6 +219,10 @@ async function createEyeTextureSet(
   baseRgb: [number, number, number],
   layers: EyeLayerConfig[],
 ): Promise<EyeTextureSet> {
+  const isFroakie = id === 'froakie';
+  const bgColor = isFroakie ? 'rgb(235, 212, 92)' : 'rgb(227, 218, 198)';
+  const strokeColor = isFroakie ? '#1d2b3a' : '#3a261e';
+
   // 1. MẮT MỞ LONG LANH (Pha 4 lớp mask qua kênh Đỏ)
   const loadedImages = await Promise.all(
     layers.map(
@@ -262,18 +283,18 @@ async function createEyeTextureSet(
   openTex.wrapT = THREE.RepeatWrapping;
   openTex.needsUpdate = true;
 
-  // 2. MẮT NHẮM KHI CHỚP (Màu da mí mắt + viền cong mí mắt nhắm đậm)
+  // 2. MẮT NHẮM KHI CHỚP (Màu mí mắt chuẩn: trắng kem #e3dac6 cho Deerling, vàng cho Froakie)
   const blinkCanvas = document.createElement('canvas');
   blinkCanvas.width = 256;
   blinkCanvas.height = 256;
   const bCtx = blinkCanvas.getContext('2d');
   if (bCtx) {
-    bCtx.fillStyle = id === 'froakie' ? 'rgb(78, 175, 226)' : 'rgb(232, 148, 174)';
+    bCtx.fillStyle = bgColor;
     bCtx.fillRect(0, 0, 256, 256);
 
     bCtx.lineWidth = 11;
     bCtx.lineCap = 'round';
-    bCtx.strokeStyle = id === 'froakie' ? '#142838' : '#3c1822';
+    bCtx.strokeStyle = strokeColor;
     bCtx.beginPath();
     bCtx.moveTo(35, 128);
     bCtx.quadraticCurveTo(128, 155, 221, 128);
@@ -289,12 +310,12 @@ async function createEyeTextureSet(
   happyCanvas.height = 256;
   const hCtx = happyCanvas.getContext('2d');
   if (hCtx) {
-    hCtx.fillStyle = id === 'froakie' ? 'rgb(181, 144, 32)' : 'rgb(232, 148, 174)';
+    hCtx.fillStyle = bgColor;
     hCtx.fillRect(0, 0, 256, 256);
 
     hCtx.lineWidth = 14;
     hCtx.lineCap = 'round';
-    hCtx.strokeStyle = id === 'froakie' ? '#190e0b' : '#30141e';
+    hCtx.strokeStyle = strokeColor;
     hCtx.beginPath();
     hCtx.moveTo(35, 148);
     hCtx.quadraticCurveTo(128, 68, 221, 148);
@@ -308,33 +329,35 @@ async function createEyeTextureSet(
 }
 
 // =============================================================================
-// HÀM TƯ THẾ NGỒI ẾCH CHUẨN CHO FROAKIE
+// HÀM TƯ THẾ NGỒI ẾCH CHUẨN ĐỘNG HỌC CHO FROAKIE (4 CHI CHẠM ĐẤT)
 // =============================================================================
-function applyFrogSitPose(
-  bones: Record<string, THREE.Bone>,
-  modelInner: THREE.Group,
-  crouchAmount = 1.0,
-) {
-  // Hạ thấp trọng tâm thân và rướn lưng về phía trước
-  modelInner.position.y = -0.14 * crouchAmount;
-  rotateBoneLocal(bones['spine'], 0, 0.38 * crouchAmount, 0);
-  rotateBoneLocal(bones['head'], 0, -0.32 * crouchAmount, 0);
+function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
+  // 1. Hạ thấp xương chậu xuống sát mặt đất để ngồi xổm như ếch
+  if (bones['waist']) {
+    bones['waist'].position.set(0, 0.078, -0.035);
+  }
 
-  // Hai chân sau co gập sâu đúng dáng ngồi ếch
-  rotateBoneLocal(bones['left_leg_01'], 0, 0.95 * crouchAmount, 0.22 * crouchAmount);
-  rotateBoneLocal(bones['right_leg_01'], 0, 0.95 * crouchAmount, -0.22 * crouchAmount);
-  rotateBoneLocal(bones['left_leg_02'], 0, -1.42 * crouchAmount, 0);
-  rotateBoneLocal(bones['right_leg_02'], 0, -1.42 * crouchAmount, 0);
-  rotateBoneLocal(bones['left_foot'], 0, 0.52 * crouchAmount, 0);
-  rotateBoneLocal(bones['right_foot'], 0, 0.52 * crouchAmount, 0);
+  // 2. Đổ thân người về phía trước và ngẩng đầu nhìn thẳng
+  rotateBoneLocal(bones['spine'], 0, -0.68 + breath * 0.04, 0);
+  rotateBoneLocal(bones['neck'], 0, 0.32, 0);
+  rotateBoneLocal(bones['head'], 0, 0.42 - breath * 0.03, 0);
 
-  // Hai tay chống xuống đất giữa hai đầu gối
-  rotateBoneLocal(bones['left_arm_01'], 0, 0.52 * crouchAmount, -0.52 * crouchAmount);
-  rotateBoneLocal(bones['right_arm_01'], 0, 0.52 * crouchAmount, 0.52 * crouchAmount);
-  rotateBoneLocal(bones['left_arm_02'], 0, 0.25 * crouchAmount, 0);
-  rotateBoneLocal(bones['right_arm_02'], 0, 0.25 * crouchAmount, 0);
-  rotateBoneLocal(bones['left_hand'], 0, -0.2 * crouchAmount, 0);
-  rotateBoneLocal(bones['right_hand'], 0, -0.2 * crouchAmount, 0);
+  // 3. Gập sâu 2 đùi lên sát bụng (ry âm) và gập cẳng chân (ry dương), mở rộng đầu gối sang 2 bên
+  rotateBoneLocal(bones['left_leg_01'], 0, -1.25, 0.30);
+  rotateBoneLocal(bones['right_leg_01'], 0, -1.25, -0.30);
+  rotateBoneLocal(bones['left_leg_02'], 0, 1.45, 0);
+  rotateBoneLocal(bones['right_leg_02'], 0, 1.45, 0);
+  rotateBoneLocal(bones['left_foot'], 0, -0.25, 0);
+  rotateBoneLocal(bones['right_foot'], 0, -0.25, 0);
+
+  // 4. Hai chi trước chống thẳng xuống đất ở phía trước ngực, bàn tay xòe phẳng trên sàn
+  rotateBoneLocal(bones['left_arm_01'], -0.20, -0.35, -0.85);
+  rotateBoneLocal(bones['left_arm_02'], 0, -0.35, 0);
+  rotateBoneLocal(bones['left_hand'], 0, 0.35, 0);
+
+  rotateBoneLocal(bones['right_arm_01'], 0.20, -0.35, 0.85);
+  rotateBoneLocal(bones['right_arm_02'], 0, -0.35, 0);
+  rotateBoneLocal(bones['right_hand'], 0, 0.35, 0);
 }
 
 // =============================================================================
@@ -429,9 +452,11 @@ function CompanionEntity({
       scene.traverse((child) => {
         const name = child.name.toLowerCase();
 
+        // 1. Lưu cả restQuat lẫn restPos ban đầu
         if ((child as THREE.Bone).isBone || child.type === 'Bone') {
-          child.userData.restQuat = child.quaternion.clone();
           bones[name] = child as THREE.Bone;
+          child.userData.restQuat = child.quaternion.clone();
+          child.userData.restPos = child.position.clone();
         }
 
         // Lọc lưới LOD
@@ -490,20 +515,20 @@ function CompanionEntity({
         }
       });
 
+      // 2. Căn đáy bounding box (box.min.y) nằm đúng tại y = 0 để bàn chân luôn tiếp xúc mặt phẳng
       const box = new THREE.Box3().setFromObject(scene);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
 
       const scale = targetHeight / (size.y || 1);
       scene.scale.setScalar(scale);
-      scene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+      scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
       bonesMapRef.current = bones;
       eyeMaterialsRef.current = eyeMats;
       setEyeTextures(eyeTexSet);
       setModelScene(scene);
 
-      // Khởi tạo điểm đến ban đầu
       targetPosRef.current = getRandomWaypoint(initialPos[1]);
     });
 
@@ -527,10 +552,8 @@ function CompanionEntity({
     // =========================================================================
     // 1. HỆ THỐNG MẮT: LIẾC NHẸ, CHỚP MẮT & CƯỜI TÍT MẮT
     // =========================================================================
-    // Liếc nhẹ ánh mắt có hồn
     eyeTextures.openTex.offset.set(Math.sin(elapsed * 0.9) * 0.015, Math.cos(elapsed * 0.7) * 0.01);
 
-    // Quản lý chớp mắt tự nhiên
     if (elapsed >= nextBlinkTimeRef.current) {
       blinkEndTimeRef.current = elapsed + 0.14;
       const isDouble = Math.random() < 0.28;
@@ -560,30 +583,33 @@ function CompanionEntity({
     // 2. TƯƠNG TÁC GẶP GỠ (CHANCE ENCOUNTER: MEET_SPECIAL) & CHẠM VÀO (EXCITED)
     // =========================================================================
     if (isMeeting || isExcited) {
-      // Hướng mặt nhìn nhau
       const other = otherPosRef.current;
       const lookDx = other.x - curPos.x;
       const lookDz = other.z - curPos.z;
       if (Math.hypot(lookDx, lookDz) > 0.05) {
         const meetYaw = Math.atan2(lookDx, lookDz);
-        let diffYaw = (meetYaw - groupRef.current.rotation.y) % (Math.PI * 2);
-        if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
-        if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
-        groupRef.current.rotation.y += diffYaw * Math.min(1, delta * 6.0);
+        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 6.0);
       }
 
       if (id === 'froakie') {
-        applyFrogSitPose(bones, modelInnerRef.current, 1.0);
-        // Tay trái chống sàn, tay phải giơ vẫy chào Nai
-        rotateBoneLocal(bones['right_arm_01'], 0, -1.15, -0.75);
-        rotateBoneLocal(bones['right_arm_02'], 0, 0.65 + Math.sin(elapsed * 10.0) * 0.35, 0);
-        modelInnerRef.current.position.y = -0.14 + Math.abs(Math.sin(elapsed * 8.0)) * 0.12;
+        // Nhảy nảy vui vẻ tại chỗ và vẫy tay chào Nai
+        const pBounce = (elapsed * 2.2) % 1.0;
+        const stretch = Math.sin(pBounce * Math.PI);
+        const jumpH = Math.abs(Math.sin(elapsed * 5.5)) * 0.35;
+        modelInnerRef.current.position.y = jumpH;
+        modelInnerRef.current.rotation.x = stretch * 0.15;
+
+        applyFrogSitPose(bones, Math.sin(elapsed * 4.0));
+        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
+          if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
+        });
+        const wave = Math.sin(elapsed * 12.0) * 0.25;
+        rotateBoneLocal(bones['right_arm_01'], -0.40, 0.35, -0.25 + wave);
+        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.55 + wave);
       } else if (id === 'deerling') {
-        // Deerling gật đầu chào trìu mến, vẫy tai và ngoắc đuôi
-        rotateBoneLocal(bones['left_arm_01'], 0, 0, 0);
-        rotateBoneLocal(bones['right_arm_01'], 0, 0, 0);
-        rotateBoneLocal(bones['left_leg_01'], 0, 0, 0);
-        rotateBoneLocal(bones['right_leg_01'], 0, 0, 0);
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        resetAllBones(bones);
 
         rotateBoneLocal(bones['neck'], 0, -0.32 + Math.sin(elapsed * 5.0) * 0.08, 0);
         rotateBoneLocal(bones['head'], 0, 0.15, 0);
@@ -608,47 +634,58 @@ function CompanionEntity({
         const dist2D = Math.hypot(dx, dz);
 
         if (dist2D < 0.12) {
-          // Đến nơi: chuyển sang ăn cỏ hoặc ngẩng đầu nhìn quanh
           deerlingStateRef.current = Math.random() < 0.5 ? 'GRAZING' : 'LOOKING';
           deerlingStateTimerRef.current = 0;
+          modelInnerRef.current.position.y = 0;
+          resetAllBones(bones);
         } else {
-          // Xoay mặt về hướng đi
           const targetYaw = Math.atan2(dx, dz);
-          let diffYaw = (targetYaw - groupRef.current.rotation.y) % (Math.PI * 2);
-          if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
-          if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
-          groupRef.current.rotation.y += diffYaw * Math.min(1, delta * 4.5);
+          groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, targetYaw, delta * 4.5);
           groupRef.current.rotation.x = 0;
           groupRef.current.rotation.z = 0;
 
-          // Di chuyển thong thả 0.55 đv/s
-          const walkSpeed = 0.55;
+          // Tốc độ đi bộ thong thả chuẩn 0.42 đv/s
+          const walkSpeed = 0.42;
           const stepDist = Math.min(dist2D, delta * walkSpeed);
           curPos.x += (dx / dist2D) * stepDist;
           curPos.z += (dz / dist2D) * stepDist;
           curPos.y = THREE.MathUtils.lerp(curPos.y, targetPos.y, delta * 3.0);
           groupRef.current.position.copy(curPos);
 
-          // Pha bước chân tỉ lệ trực tiếp với quãng đường (chống trượt chân hoàn toàn)
-          walkPhaseRef.current += stepDist * 4.2;
+          // Đồng bộ pha bước chân theo đúng sải chân: stepDist * 5.7
+          walkPhaseRef.current += stepDist * 5.7;
           const phase = walkPhaseRef.current;
 
-          // Nhấp nhô thân người tự nhiên
-          modelInnerRef.current.position.y = Math.abs(Math.sin(phase)) * 0.025;
+          // Nhấp nhô thân nhẹ theo từng nhịp chân chạm đất
+          modelInnerRef.current.position.y = Math.abs(Math.cos(phase)) * 0.025;
 
-          // 4 chân bước chéo nhịp nhàng
-          const swing = Math.sin(phase) * 0.32;
-          const kneeA = Math.max(0, Math.cos(phase)) * 0.35;
-          const kneeB = Math.max(0, -Math.cos(phase)) * 0.35;
+          // Công thức chuẩn pha chống/vung 4 chi (khóa gối khi chống, gập khi vung)
+          const strideA = 0.35;
+          const swingFL = Math.sin(phase) * strideA;
+          const swingFR = Math.sin(phase + Math.PI) * strideA;
+          const swingBL = Math.sin(phase + Math.PI) * strideA;
+          const swingBR = Math.sin(phase) * strideA;
 
-          rotateBoneLocal(bones['left_arm_01'], 0, swing, 0);
-          rotateBoneLocal(bones['left_arm_02'], 0, -kneeA, 0);
-          rotateBoneLocal(bones['right_arm_01'], 0, -swing, 0);
-          rotateBoneLocal(bones['right_arm_02'], 0, -kneeB, 0);
-          rotateBoneLocal(bones['left_leg_01'], 0, -swing * 0.9, 0);
-          rotateBoneLocal(bones['left_leg_02'], 0, kneeB * 0.8, 0);
-          rotateBoneLocal(bones['right_leg_01'], 0, swing * 0.9, 0);
-          rotateBoneLocal(bones['right_leg_02'], 0, kneeA * 0.8, 0);
+          const liftFL = Math.max(0, -Math.cos(phase)) * 0.55;
+          const liftFR = Math.max(0, -Math.cos(phase + Math.PI)) * 0.55;
+          const liftBL = Math.max(0, -Math.cos(phase + Math.PI)) * 0.55;
+          const liftBR = Math.max(0, -Math.cos(phase)) * 0.55;
+
+          rotateBoneLocal(bones['left_arm_01'], 0, swingFL, 0);
+          rotateBoneLocal(bones['left_arm_02'], 0, -liftFL, 0);
+          rotateBoneLocal(bones['left_hand'], 0, liftFL * 0.4, 0);
+
+          rotateBoneLocal(bones['right_arm_01'], 0, swingFR, 0);
+          rotateBoneLocal(bones['right_arm_02'], 0, -liftFR, 0);
+          rotateBoneLocal(bones['right_hand'], 0, liftFR * 0.4, 0);
+
+          rotateBoneLocal(bones['left_leg_01'], 0, swingBL, 0);
+          rotateBoneLocal(bones['left_leg_02'], 0, liftBL, 0);
+          rotateBoneLocal(bones['left_foot'], 0, -liftBL * 0.5, 0);
+
+          rotateBoneLocal(bones['right_leg_01'], 0, swingBR, 0);
+          rotateBoneLocal(bones['right_leg_02'], 0, liftBR, 0);
+          rotateBoneLocal(bones['right_foot'], 0, -liftBR * 0.5, 0);
 
           rotateBoneLocal(bones['spine_02'], 0, 0, 0);
           rotateBoneLocal(bones['neck'], 0, Math.sin(phase * 2) * 0.05, 0);
@@ -657,9 +694,12 @@ function CompanionEntity({
           rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 3.0) * 0.12);
           rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 3.0) * 0.12);
 
-          // Gợn sóng bước chân khi chân dẫm xuống đất
+          // Kích hoạt gợn sóng bước chân ngay khoảnh khắc chân chạm đất (cực trị sin)
           const currentSin = Math.sin(phase);
-          if (prevWalkSinRef.current * currentSin <= 0) {
+          if (
+            (prevWalkSinRef.current < 0.92 && currentSin >= 0.92) ||
+            (prevWalkSinRef.current > -0.92 && currentSin <= -0.92)
+          ) {
             rippleManager.add(
               curPos.x,
               curPos.y,
@@ -676,21 +716,19 @@ function CompanionEntity({
           prevWalkSinRef.current = currentSin;
         }
       } else if (state === 'LEAP_LAYER') {
-        // Nhảy phóng vọt chuyển tầng không gian
         const prepTime = 0.3;
         const jumpTime = 1.1;
 
         if (timer < prepTime) {
-          // Nhún chân lấy đà
           const crouchP = timer / prepTime;
-          modelInnerRef.current.position.y = -0.06 * crouchP;
+          modelInnerRef.current.position.y = -0.05 * crouchP;
           rotateBoneLocal(bones['left_arm_01'], 0, 0.2 * crouchP, 0);
           rotateBoneLocal(bones['right_arm_01'], 0, 0.2 * crouchP, 0);
           rotateBoneLocal(bones['left_leg_01'], 0, 0.25 * crouchP, 0);
           rotateBoneLocal(bones['right_leg_01'], 0, 0.25 * crouchP, 0);
 
           const targetYaw = Math.atan2(targetPos.x - curPos.x, targetPos.z - curPos.z);
-          groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, targetYaw, delta * 6.0);
+          groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, targetYaw, delta * 6.0);
         } else if (timer < prepTime + jumpTime) {
           const p = (timer - prepTime) / jumpTime;
           curPos.x = THREE.MathUtils.lerp(startPos.x, targetPos.x, p);
@@ -701,7 +739,6 @@ function CompanionEntity({
           const leapArc = Math.sin(p * Math.PI);
           modelInnerRef.current.position.y = leapArc * 0.85;
 
-          // Chân trước gập ngực, chân sau duỗi đạp ra sau, cổ vươn cao
           rotateBoneLocal(bones['left_arm_01'], 0, -0.65 * leapArc, 0);
           rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * leapArc, 0);
           rotateBoneLocal(bones['right_arm_01'], 0, -0.65 * leapArc, 0);
@@ -713,12 +750,11 @@ function CompanionEntity({
           rotateBoneLocal(bones['neck'], 0, 0.28 * leapArc, 0);
           rotateBoneLocal(bones['head'], 0, -0.15 * leapArc, 0);
         } else {
-          // Tiếp đất an toàn trên tầng mới
           curPos.copy(targetPos);
           groupRef.current.position.copy(curPos);
           modelInnerRef.current.position.y = 0;
+          resetAllBones(bones);
 
-          // Gợn sóng lớn kép khi tiếp đất
           rippleManager.add(
             curPos.x,
             curPos.y,
@@ -736,15 +772,8 @@ function CompanionEntity({
           deerlingStateTimerRef.current = 0;
         }
       } else if (state === 'GRAZING') {
-        // Dừng lại cúi xuống ăn cỏ & ngửi mùi hương
-        rotateBoneLocal(bones['left_arm_01'], 0, 0, 0);
-        rotateBoneLocal(bones['left_arm_02'], 0, 0, 0);
-        rotateBoneLocal(bones['right_arm_01'], 0, 0, 0);
-        rotateBoneLocal(bones['right_arm_02'], 0, 0, 0);
-        rotateBoneLocal(bones['left_leg_01'], 0, 0, 0);
-        rotateBoneLocal(bones['left_leg_02'], 0, 0, 0);
-        rotateBoneLocal(bones['right_leg_01'], 0, 0, 0);
-        rotateBoneLocal(bones['right_leg_02'], 0, 0, 0);
+        modelInnerRef.current.position.y = 0;
+        resetAllBones(bones);
 
         const duration = 3.6;
         const bend =
@@ -762,7 +791,6 @@ function CompanionEntity({
         rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 3.0) * 0.18);
 
         if (timer >= duration) {
-          // Chọn điểm đến mới
           startPosRef.current.copy(curPos);
           targetPosRef.current = getRandomWaypoint(curPos.y);
 
@@ -774,7 +802,9 @@ function CompanionEntity({
           deerlingStateTimerRef.current = 0;
         }
       } else if (state === 'LOOKING') {
-        // Đứng ngẩng cao đầu nhìn quanh
+        modelInnerRef.current.position.y = 0;
+        resetAllBones(bones);
+
         rotateBoneLocal(bones['spine_02'], 0, 0, 0);
         rotateBoneLocal(bones['neck'], 0, 0.08, 0);
         rotateBoneLocal(bones['head'], 0, 0.08, Math.sin(elapsed * 2.4) * 0.28);
@@ -806,26 +836,25 @@ function CompanionEntity({
       froakieStateTimerRef.current += delta;
       const timer = froakieStateTimerRef.current;
 
+      const breath = Math.sin(elapsed * 3.5);
+
       if (state === 'HOP_MOVE') {
         const prepTime = 0.35;
         const jumpTime = 0.95;
 
         if (timer < prepTime) {
-          // Giai đoạn 1: Nhún lấy đà từ tư thế ngồi ếch
-          const crouch = 1.0 + (timer / prepTime) * 0.35;
-          applyFrogSitPose(bones, modelInnerRef.current, crouch);
+          // Nhún lấy đà từ tư thế ngồi ếch
+          modelInnerRef.current.position.y = 0;
+          modelInnerRef.current.rotation.x = 0;
+          applyFrogSitPose(bones, breath);
 
           const dx = targetPos.x - startPos.x;
           const dz = targetPos.z - startPos.z;
           if (Math.hypot(dx, dz) > 0.05) {
             const hopYaw = Math.atan2(dx, dz);
-            let diffYaw = (hopYaw - groupRef.current.rotation.y) % (Math.PI * 2);
-            if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
-            if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
-            groupRef.current.rotation.y += diffYaw * Math.min(1, delta * 6.0);
+            groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, hopYaw, delta * 6.0);
           }
         } else if (timer < prepTime + jumpTime) {
-          // Giai đoạn 2: Bật nhảy bay trên không theo Parabol
           const p = (timer - prepTime) / jumpTime;
           curPos.x = THREE.MathUtils.lerp(startPos.x, targetPos.x, p);
           curPos.y = THREE.MathUtils.lerp(startPos.y, targetPos.y, p);
@@ -833,28 +862,72 @@ function CompanionEntity({
           groupRef.current.position.copy(curPos);
 
           const jumpArc = Math.sin(p * Math.PI);
-          modelInnerRef.current.position.y = -0.14 * (1 - jumpArc) + jumpArc * 0.75;
+          modelInnerRef.current.position.y = jumpArc * 0.75;
 
-          // Hai tay giơ cao về phía trước, hai chân đạp mạnh ra sau
-          rotateBoneLocal(bones['spine'], 0, -0.15 * jumpArc, 0);
-          rotateBoneLocal(bones['head'], 0, 0.1 * jumpArc, 0);
+          const stretch = Math.sin(p * Math.PI); // 0 -> 1 -> 0
+          const landingReach = p > 0.45 ? Math.sin(((p - 0.45) / 0.55) * Math.PI) : 0;
 
-          rotateBoneLocal(bones['left_arm_01'], 0, -0.75 * jumpArc, 0.35 * jumpArc);
-          rotateBoneLocal(bones['right_arm_01'], 0, -0.75 * jumpArc, -0.35 * jumpArc);
-          rotateBoneLocal(bones['left_arm_02'], 0, 0, 0);
-          rotateBoneLocal(bones['right_arm_02'], 0, 0, 0);
+          // Chúi mũi về phía trước khi nhảy, nghiêng chúi xuống khi chuẩn bị tiếp đất bằng 2 tay trước
+          modelInnerRef.current.rotation.x = stretch * 0.25 + landingReach * 0.22;
 
-          rotateBoneLocal(bones['left_leg_01'], 0, -0.55 * jumpArc, 0);
-          rotateBoneLocal(bones['right_leg_01'], 0, -0.55 * jumpArc, 0);
-          rotateBoneLocal(bones['left_leg_02'], 0, 0.15 * jumpArc, 0);
-          rotateBoneLocal(bones['right_leg_02'], 0, 0.15 * jumpArc, 0);
-          rotateBoneLocal(bones['left_foot'], 0, -0.35 * jumpArc, 0);
-          rotateBoneLocal(bones['right_foot'], 0, -0.35 * jumpArc, 0);
+          if (bones['waist']) {
+            bones['waist'].position.set(0, 0.078 + stretch * 0.05, -0.035);
+          }
+
+          [
+            'spine',
+            'neck',
+            'head',
+            'left_arm_01',
+            'left_arm_02',
+            'left_hand',
+            'right_arm_01',
+            'right_arm_02',
+            'right_hand',
+            'left_leg_01',
+            'right_leg_01',
+            'left_leg_02',
+            'right_leg_02',
+            'left_foot',
+            'right_foot',
+          ].forEach((n) => {
+            if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
+          });
+
+          // Lưng luôn đổ về phía trước, đầu ngẩng nhìn điểm đáp
+          rotateBoneLocal(bones['spine'], 0, -0.72 - landingReach * 0.15, 0);
+          rotateBoneLocal(bones['neck'], 0, 0.35, 0);
+          rotateBoneLocal(bones['head'], 0, 0.48 + landingReach * 0.12, 0);
+
+          // Hai tay trước vươn về phía trước và hướng xuống mặt đất để chạm đất trước tiên
+          const armForward = -0.35 - stretch * 0.45;
+          const armDown = -0.85 + stretch * 0.25 - landingReach * 0.20;
+          rotateBoneLocal(bones['left_arm_01'], -0.20, armForward, armDown);
+          rotateBoneLocal(bones['left_arm_02'], 0, -0.25 * (1 - stretch), 0);
+          rotateBoneLocal(bones['left_hand'], 0, 0.35, 0);
+
+          rotateBoneLocal(bones['right_arm_01'], 0.20, armForward, -armDown);
+          rotateBoneLocal(bones['right_arm_02'], 0, -0.25 * (1 - stretch), 0);
+          rotateBoneLocal(bones['right_hand'], 0, 0.35, 0);
+
+          // Hai chân sau đạp duỗi ra sau ở giữa cú nhảy và thu về tư thế ngồi xổm khi tiếp đất
+          const hipRy = THREE.MathUtils.lerp(-1.25, 0.25, stretch);
+          const kneeRy = THREE.MathUtils.lerp(1.45, 0.20, stretch);
+          const footRy = THREE.MathUtils.lerp(-0.25, 0.45, stretch);
+          const splay = THREE.MathUtils.lerp(0.30, 0.12, stretch);
+
+          rotateBoneLocal(bones['left_leg_01'], 0, hipRy, splay);
+          rotateBoneLocal(bones['right_leg_01'], 0, hipRy, -splay);
+          rotateBoneLocal(bones['left_leg_02'], 0, kneeRy, 0);
+          rotateBoneLocal(bones['right_leg_02'], 0, kneeRy, 0);
+          rotateBoneLocal(bones['left_foot'], 0, footRy, 0);
+          rotateBoneLocal(bones['right_foot'], 0, footRy, 0);
         } else {
-          // Tiếp đất an toàn và phát gợn sóng không gian
           curPos.copy(targetPos);
           groupRef.current.position.copy(curPos);
-          applyFrogSitPose(bones, modelInnerRef.current, 1.0);
+          modelInnerRef.current.position.y = 0;
+          modelInnerRef.current.rotation.x = 0;
+          applyFrogSitPose(bones, 0);
 
           rippleManager.add(
             curPos.x,
@@ -869,14 +942,12 @@ function CompanionEntity({
             elapsed,
           );
 
-          // Chọn ngẫu nhiên hành động tiếp theo
           const rand = Math.random();
           if (rand < 0.38) {
             froakieStateRef.current = 'SCRATCH_HEAD';
           } else if (rand < 0.72) {
             froakieStateRef.current = 'WAVE_CAMERA';
           } else {
-            // Nhảy tiếp sau 0.8s ngồi nghỉ
             startPosRef.current.copy(curPos);
             targetPosRef.current = getRandomWaypoint(curPos.y);
             froakieStateRef.current = 'HOP_MOVE';
@@ -884,12 +955,18 @@ function CompanionEntity({
           froakieStateTimerRef.current = 0;
         }
       } else if (state === 'SCRATCH_HEAD') {
-        // Giữ nguyên tư thế ngồi ếch, tay trái chống đất, tay phải gãi đầu
-        applyFrogSitPose(bones, modelInnerRef.current, 1.0);
+        // Giữ nguyên tư thế ngồi ếch, tay trái chống đất, tay phải gãi phía ngoài thái dương
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        applyFrogSitPose(bones, breath);
 
-        rotateBoneLocal(bones['right_arm_01'], 0, -1.25, -0.65);
-        rotateBoneLocal(bones['right_arm_02'], 0, 1.65 + Math.sin(elapsed * 15.0) * 0.22, 0);
-        rotateBoneLocal(bones['head'], 0, -0.22, 0.18 + Math.sin(elapsed * 15.0) * 0.05);
+        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
+          if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
+        });
+        const scratch = Math.sin(elapsed * 14.0) * 0.15;
+        rotateBoneLocal(bones['right_arm_01'], -0.45, 0.50, -0.35);
+        rotateBoneLocal(bones['right_arm_02'], 0, -0.55, -0.65 + scratch);
+        rotateBoneLocal(bones['head'], -0.10, 0, 0);
 
         if (timer >= 2.8) {
           startPosRef.current.copy(curPos);
@@ -899,20 +976,23 @@ function CompanionEntity({
         }
       } else if (state === 'WAVE_CAMERA') {
         // Quay mặt về Camera, tay trái chống đất, tay phải vẫy chào & cười tít mắt
-        applyFrogSitPose(bones, modelInnerRef.current, 1.0);
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        applyFrogSitPose(bones, breath);
 
         const camPos = threeState.camera.position;
         const camDx = camPos.x - curPos.x;
         const camDz = camPos.z - curPos.z;
         const camYaw = Math.atan2(camDx, camDz);
-        let diffYaw = (camYaw - groupRef.current.rotation.y) % (Math.PI * 2);
-        if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
-        if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
-        groupRef.current.rotation.y += diffYaw * Math.min(1, delta * 5.0);
+        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, camYaw, delta * 5.0);
 
-        rotateBoneLocal(bones['right_arm_01'], 0, -1.15, -0.85);
-        rotateBoneLocal(bones['right_arm_02'], 0, 0.65 + Math.sin(elapsed * 10.0) * 0.35, 0);
-        rotateBoneLocal(bones['head'], 0, -0.15, Math.sin(elapsed * 5.0) * 0.12);
+        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
+          if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
+        });
+        const wave = Math.sin(elapsed * 10.0) * 0.22;
+        rotateBoneLocal(bones['right_arm_01'], -0.40, 0.35, -0.25 + wave);
+        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.55 + wave);
+        rotateBoneLocal(bones['head'], 0.12, 0, 0);
 
         if (timer >= 3.2) {
           startPosRef.current.copy(curPos);
@@ -927,7 +1007,6 @@ function CompanionEntity({
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     triggerCompanion(id);
-    // Phát gợn sóng khi chạm
     rippleManager.add(
       currentPosRef.current.x,
       currentPosRef.current.y,
@@ -1010,10 +1089,10 @@ export function CompanionPair(): JSX.Element {
 
   return (
     <group>
-      {/* Hệ thống sóng không gian phẳng */}
+      {/* Hệ thống sóng không gian phẳng ngay dưới lòng bàn chân */}
       <SpaceRippleMeshSystem manager={rippleManager} />
 
-      {/* Froakie (Cóc) - Tư thế ngồi ếch, bật nhảy vươn tay, gãi đầu, vẫy chào camera */}
+      {/* Froakie (Cóc) - Tư thế ngồi ếch 4 chi chạm đất, nhảy lao chúi đầu, gãi đầu, vẫy chào camera */}
       <CompanionEntity
         id="froakie"
         daeUrl="/models/companions/froakie/pm0723_00_00.dae"
@@ -1025,7 +1104,7 @@ export function CompanionPair(): JSX.Element {
         isMeeting={isMeeting}
       />
 
-      {/* Deerling (Nai) - Chống trượt chân, nhảy chuyển tầng, ăn cỏ, ngửi mùi */}
+      {/* Deerling (Nai) - Chống trượt chân (Moonwalk), nhảy chuyển tầng, ăn cỏ, ngửi mùi */}
       <CompanionEntity
         id="deerling"
         daeUrl="/models/companions/deerling/pm0585_11_00.dae"
