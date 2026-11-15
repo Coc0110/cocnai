@@ -13,7 +13,7 @@ style.textContent = `
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: #000000;
+    background-color: #02040a;
     touch-action: none;
     -webkit-touch-callout: none;
     -webkit-user-select: none;

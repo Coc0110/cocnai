@@ -24,6 +24,16 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
   const isSelected = selectedKeepsakeId === item.id;
 
+  // Hạt giống pha riêng cho từng kỷ vật để dao động trôi nổi và xoay khác nhau
+  const seed = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < item.id.length; i++) {
+      hash = (hash << 5) - hash + item.id.charCodeAt(i);
+      hash |= 0;
+    }
+    return (Math.abs(hash % 1000) / 100) + 1.0;
+  }, [item.id]);
+
   const [isPointerDown, setIsPointerDown] = useState(false);
   const pointerStartRef = useRef<{
     time: number;
@@ -39,19 +49,38 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
   const lastWorldPointRef = useRef<THREE.Vector3>(new THREE.Vector3());
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!rigidBodyRef.current || isSelected) return;
 
-    // Soft gravity well kéo nhẹ về trung tâm nếu trôi quá xa
+    const elapsed = state.clock.getElapsedTime();
+
+    // 1. Lực hút mềm vô hình giữ kỷ vật không trôi mất khỏi trung tâm
     const pos = rigidBodyRef.current.translation();
     const [ix, iy, iz] = computeGravityWellImpulse([pos.x, pos.y, pos.z], 5.5, 0.45);
-    if (ix !== 0 || iy !== 0 || iz !== 0) {
-      rigidBodyRef.current.applyImpulse({ x: ix * delta, y: iy * delta, z: iz * delta }, true);
-    }
+
+    // 2. Dòng chảy không trọng lực êm dịu (Zero-G Ambient Drift Force)
+    const fx = Math.sin(elapsed * 0.45 + seed) * 0.04;
+    const fy = Math.cos(elapsed * 0.38 + seed * 1.7) * 0.04;
+    const fz = Math.sin(elapsed * 0.41 + seed * 2.3) * 0.04;
+
+    rigidBodyRef.current.applyImpulse(
+      {
+        x: (ix + fx) * delta,
+        y: (iy + fy) * delta,
+        z: (iz + fz) * delta,
+      },
+      true,
+    );
+
+    // 3. Vận tốc góc bập bềnh, xoay chầm chậm tự nhiên trong không gian 3D
+    const tx = Math.sin(elapsed * 0.22 + seed) * 0.008 * delta;
+    const ty = Math.cos(elapsed * 0.26 + seed * 1.5) * 0.01 * delta;
+    const tz = Math.sin(elapsed * 0.19 + seed * 2.0) * 0.006 * delta;
+    rigidBodyRef.current.applyTorqueImpulse({ x: tx, y: ty, z: tz }, true);
   });
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
-    // Không dùng stopPropagation ở đây để OrbitControls vẫn nhận sự kiện kéo xoay camera
+    // Không gọi stopPropagation để OrbitControls nhận sự kiện kéo xoay camera bình thường
     setIsPointerDown(true);
     pointerStartRef.current = {
       time: Date.now(),
@@ -77,7 +106,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       e.clientY - pointerStartRef.current.clientY,
     );
 
-    // Nếu người dùng vuốt kéo vật thể (khoảng cách >= 8px)
+    // Người dùng vuốt kéo trực tiếp lên kỷ vật (khoảng cách >= 8px)
     if (distancePx >= 8 && rigidBodyRef.current) {
       const deltaWorld: [number, number, number] = [
         lastWorldPointRef.current.x - pointerStartRef.current.worldPoint.x,
@@ -99,7 +128,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   };
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
-    // Chỉ kích hoạt chọn xem 360 độ khi người dùng chạm click tĩnh (khoảng cách < 8px)
+    // Chỉ kích hoạt chọn ngắm 360 độ khi người dùng chạm tĩnh (khoảng cách < 8px)
     const distancePx = Math.hypot(
       e.clientX - pointerStartRef.current.clientX,
       e.clientY - pointerStartRef.current.clientY,
@@ -116,8 +145,8 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       ref={rigidBodyRef}
       colliders="hull"
       gravityScale={0}
-      linearDamping={0.5}
-      angularDamping={0.5}
+      linearDamping={0.18}
+      angularDamping={0.18}
       position={item.initialPosition}
     >
       <group
