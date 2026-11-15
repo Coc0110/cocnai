@@ -33,6 +33,7 @@ export default function App(): JSX.Element {
         dpr={[1, 1.75]}
         camera={{ position: [0, 0, 9], fov: 50, near: 0.1, far: 500 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+        onPointerMissed={() => useUniverseStore.getState().clearSelection()}
       >
         <Suspense fallback={null}>
           <CosmicEnvironment />
@@ -48,11 +49,14 @@ export default function App(): JSX.Element {
           <KeepsakeInspector items={keepsakes} />
 
           <OrbitControls
+            makeDefault
             enabled={selectedKeepsakeId === null}
             enablePan={false}
+            enableDamping
+            dampingFactor={0.07}
             minDistance={4}
             maxDistance={16}
-            rotateSpeed={0.8}
+            rotateSpeed={0.85}
             zoomSpeed={0.8}
           />
         </Suspense>

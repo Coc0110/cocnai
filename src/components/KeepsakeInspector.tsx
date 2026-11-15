@@ -101,7 +101,13 @@ export function KeepsakeInspector({ items }: KeepsakeInspectorProps): JSX.Elemen
         }}
       >
         <planeGeometry args={[100, 100]} />
-        <meshBasicMaterial transparent opacity={0.65} color="#03040b" depthWrite={false} />
+        <meshBasicMaterial
+          transparent
+          opacity={0.65}
+          color="#03040b"
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
       </mesh>
 
       <InspectedModel item={selectedItem} />

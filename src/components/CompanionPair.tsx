@@ -85,18 +85,19 @@ function CompanionEntity({ id, modelUrl, sparkleColor, initialPos }: CompanionEn
     }
   });
 
-  const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     triggerCompanion(id);
   };
 
   return (
-    <group ref={groupRef} onPointerDown={handlePointerDown}>
+    <group ref={groupRef} onClick={handleClick}>
       <group ref={modelInnerRef}>
         <primitive object={clonedScene} />
 
-        {/* Trail / aura sparkles */}
+        {/* Trail / aura sparkles - tắt raycast để không chặn thao tác xoay camera */}
         <Sparkles
+          raycast={() => null}
           count={isExcited ? 36 : 14}
           scale={isExcited ? 2.5 : 1.2}
           size={isExcited ? 4.5 : 2.5}

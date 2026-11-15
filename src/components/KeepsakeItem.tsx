@@ -6,7 +6,6 @@ import * as THREE from 'three';
 import { KeepsakeManifestItem } from '../types/universe';
 import { useUniverseStore } from '../store/useUniverseStore';
 import {
-  classifyPointerGesture,
   computeFlickImpulse,
   computeGravityWellImpulse,
 } from '../utils/physicsMath';
@@ -25,7 +24,6 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
   const isSelected = selectedKeepsakeId === item.id;
 
-  // Pointer drag & flick tracking
   const [isPointerDown, setIsPointerDown] = useState(false);
   const pointerStartRef = useRef<{
     time: number;
@@ -44,16 +42,16 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   useFrame((_, delta) => {
     if (!rigidBodyRef.current || isSelected) return;
 
-    // Apply soft spherical gravity well toward center
+    // Soft gravity well kéo nhẹ về trung tâm nếu trôi quá xa
     const pos = rigidBodyRef.current.translation();
-    const [ix, iy, iz] = computeGravityWellImpulse([pos.x, pos.y, pos.z], 5.2, 0.45);
+    const [ix, iy, iz] = computeGravityWellImpulse([pos.x, pos.y, pos.z], 5.5, 0.45);
     if (ix !== 0 || iy !== 0 || iz !== 0) {
       rigidBodyRef.current.applyImpulse({ x: ix * delta, y: iy * delta, z: iz * delta }, true);
     }
   });
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
-    e.stopPropagation();
+    // Không dùng stopPropagation ở đây để OrbitControls vẫn nhận sự kiện kéo xoay camera
     setIsPointerDown(true);
     pointerStartRef.current = {
       time: Date.now(),
@@ -71,7 +69,6 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
   const handlePointerUp = (e: ThreeEvent<PointerEvent>) => {
     if (!isPointerDown) return;
-    e.stopPropagation();
     setIsPointerDown(false);
 
     const duration = Date.now() - pointerStartRef.current.time;
@@ -80,12 +77,8 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       e.clientY - pointerStartRef.current.clientY,
     );
 
-    const gesture = classifyPointerGesture(duration, distancePx);
-
-    if (gesture === 'tap') {
-      selectKeepsake(item.id);
-    } else if (rigidBodyRef.current) {
-      // Calculate flick impulse from world movement
+    // Nếu người dùng vuốt kéo vật thể (khoảng cách >= 8px)
+    if (distancePx >= 8 && rigidBodyRef.current) {
       const deltaWorld: [number, number, number] = [
         lastWorldPointRef.current.x - pointerStartRef.current.worldPoint.x,
         lastWorldPointRef.current.y - pointerStartRef.current.worldPoint.y,
@@ -105,6 +98,19 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
     }
   };
 
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    // Chỉ kích hoạt chọn xem 360 độ khi người dùng chạm click tĩnh (khoảng cách < 8px)
+    const distancePx = Math.hypot(
+      e.clientX - pointerStartRef.current.clientX,
+      e.clientY - pointerStartRef.current.clientY,
+    );
+
+    if (distancePx < 8) {
+      e.stopPropagation();
+      selectKeepsake(item.id);
+    }
+  };
+
   return (
     <RigidBody
       ref={rigidBodyRef}
@@ -119,6 +125,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onClick={handleClick}
       >
         <primitive object={clonedScene} />
       </group>
