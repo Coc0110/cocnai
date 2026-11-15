@@ -17,12 +17,18 @@ interface CompanionEntityProps {
   targetHeight: number;
 }
 
+interface EyeLayerConfig {
+  url: string;
+  rgb: [number, number, number];
+}
+
 /**
- * Tạo CanvasTexture mắt chuẩn game Pokémon bằng cách pha màu 4 lớp mask (_lym_layer1..4.png)
+ * Tạo CanvasTexture mắt chuẩn bằng cách pha màu 4 lớp mask (_lym_layer1..4.png)
+ * trực tiếp trên mảng ImageData qua kênh Đỏ (Red mask).
  */
 async function generateEyeTexture(
-  baseColor: string,
-  layers: { url: string; color: string }[],
+  baseRgb: [number, number, number],
+  layers: EyeLayerConfig[],
 ): Promise<THREE.CanvasTexture> {
   const loadedImages = await Promise.all(
     layers.map(
@@ -43,31 +49,41 @@ async function generateEyeTexture(
   const ctx = canvas.getContext('2d');
   if (!ctx) return new THREE.CanvasTexture(canvas);
 
-  // Tô nền mắt
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 256, 256);
+  // Khởi tạo mảng outData 256x256 và tô bằng baseRgb (alpha = 255)
+  const outData = ctx.createImageData(256, 256);
+  for (let i = 0; i < outData.data.length; i += 4) {
+    outData.data[i] = baseRgb[0];
+    outData.data[i + 1] = baseRgb[1];
+    outData.data[i + 2] = baseRgb[2];
+    outData.data[i + 3] = 255;
+  }
 
-  const offscreen = document.createElement('canvas');
-  offscreen.width = 256;
-  offscreen.height = 256;
-  const octx = offscreen.getContext('2d');
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = 256;
+  tempCanvas.height = 256;
+  const tempCtx = tempCanvas.getContext('2d');
 
-  if (octx) {
-    for (let i = 0; i < layers.length; i++) {
-      const img = loadedImages[i];
+  if (tempCtx) {
+    for (let layerIdx = 0; layerIdx < layers.length; layerIdx++) {
+      const img = loadedImages[layerIdx];
+      const layer = layers[layerIdx];
       if (!img || !img.width) continue;
-      octx.clearRect(0, 0, 256, 256);
-      octx.globalCompositeOperation = 'source-over';
-      octx.fillStyle = layers[i].color;
-      octx.fillRect(0, 0, 256, 256);
 
-      octx.globalCompositeOperation = 'destination-in';
-      octx.drawImage(img, 0, 0, 256, 256);
+      tempCtx.clearRect(0, 0, 256, 256);
+      tempCtx.drawImage(img, 0, 0, 256, 256);
+      const maskData = tempCtx.getImageData(0, 0, 256, 256).data;
 
-      ctx.drawImage(offscreen, 0, 0);
+      // Trộn màu tuyến tính dựa trên giá trị mặt nạ kênh Đỏ (maskData[i] / 255.0)
+      for (let i = 0; i < outData.data.length; i += 4) {
+        const mask = maskData[i] / 255.0;
+        outData.data[i] = outData.data[i] * (1 - mask) + layer.rgb[0] * mask;
+        outData.data[i + 1] = outData.data[i + 1] * (1 - mask) + layer.rgb[1] * mask;
+        outData.data[i + 2] = outData.data[i + 2] * (1 - mask) + layer.rgb[2] * mask;
+      }
     }
   }
 
+  ctx.putImageData(outData, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
@@ -99,20 +115,20 @@ function CompanionEntity({
     const loader = new ColladaLoader();
     const texLoader = new THREE.TextureLoader();
 
-    // Chuẩn bị cấu hình pha màu mắt
+    // Chuẩn bị cấu hình pha màu mắt theo yêu cầu
     const eyePromise =
       id === 'froakie'
-        ? generateEyeTexture('#130e0b', [
-            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer1.png', color: 'rgb(181, 144, 32)' },
-            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer2.png', color: 'rgb(19, 14, 11)' },
-            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer3.png', color: 'rgb(3, 3, 3)' },
-            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer4.png', color: 'rgb(255, 255, 255)' },
+        ? generateEyeTexture([19, 14, 11], [
+            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer1.png', rgb: [181, 144, 32] },
+            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer2.png', rgb: [19, 14, 11] },
+            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer3.png', rgb: [3, 3, 3] },
+            { url: '/models/companions/froakie/pm0723_00_00_eye_a_lym_layer4.png', rgb: [255, 255, 255] },
           ])
-        : generateEyeTexture('#413a35', [
-            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer1.png', color: 'rgb(182, 179, 115)' },
-            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer2.png', color: 'rgb(65, 58, 53)' },
-            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer3.png', color: 'rgb(3, 3, 3)' },
-            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer4.png', color: 'rgb(255, 255, 255)' },
+        : generateEyeTexture([65, 58, 53], [
+            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer1.png', rgb: [182, 179, 115] },
+            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer2.png', rgb: [65, 58, 53] },
+            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer3.png', rgb: [3, 3, 3] },
+            { url: '/models/companions/deerling/pm0585_11_00_eye_lym_layer4.png', rgb: [255, 255, 255] },
           ]);
 
     Promise.all([
@@ -123,28 +139,32 @@ function CompanionEntity({
     ]).then(([scene, eyeTex]) => {
       if (isCancelled) return;
 
+      // 1. Đặt scene.rotation.set(0, 0, 0) trước khi tính Box3
+      scene.rotation.set(0, 0, 0);
+
       const bones: Record<string, THREE.Bone> = {};
 
       scene.traverse((child) => {
         const name = child.name.toLowerCase();
 
-        // Thu thập xương để điều khiển cử động
-        if ((child as THREE.Bone).isBone || child.type === 'Bone' || name) {
+        // 2. Chỉ thu thập node thực sự là Bone và lưu lại restRotation ban đầu
+        if ((child as THREE.Bone).isBone || child.type === 'Bone') {
+          child.userData.restRotation = child.rotation.clone();
           bones[name] = child as THREE.Bone;
         }
 
-        // BƯỚC 3.1: Ẩn các lưới LOD bị trùng
+        // 3. Ẩn các lưới LOD bị trùng (Deerling giữ nguyên var_tex)
         if (id === 'froakie') {
           if (/lod1|lod2|eye_b|body_c/i.test(child.name)) {
             child.visible = false;
           }
         } else if (id === 'deerling') {
-          if (/lod1|lod2|var_tex/i.test(child.name)) {
+          if (/lod1|lod2/i.test(child.name)) {
             child.visible = false;
           }
         }
 
-        // BƯỚC 3.2: Gán Texture mắt và thân chuẩn
+        // 4. Gán Texture chuẩn cho mắt và thân
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
           const mat = mesh.material;
@@ -155,6 +175,7 @@ function CompanionEntity({
 
             if (/eye/i.test(matName) || /eye/i.test(mesh.name)) {
               std.map = eyeTex;
+              if (std.color) std.color.setHex(0xffffff);
               std.roughness = 0.15;
               std.metalness = 0.05;
               std.needsUpdate = true;
@@ -172,6 +193,7 @@ function CompanionEntity({
                 std.normalMap = texLoader.load('/models/companions/froakie/pm0723_00_00_body_b_nrm.png');
                 std.aoMap = texLoader.load('/models/companions/froakie/pm0723_00_00_body_b_ao.png');
               }
+              if (std.color) std.color.setHex(0xffffff);
               std.roughness = 0.35;
               std.needsUpdate = true;
             } else if (id === 'deerling') {
@@ -180,6 +202,7 @@ function CompanionEntity({
               });
               std.normalMap = texLoader.load('/models/companions/deerling/pm0585_11_00_body_nrm.png');
               std.aoMap = texLoader.load('/models/companions/deerling/pm0585_11_00_body_ao.png');
+              if (std.color) std.color.setHex(0xffffff);
               std.roughness = 0.4;
               std.needsUpdate = true;
             }
@@ -193,7 +216,7 @@ function CompanionEntity({
         }
       });
 
-      // BƯỚC 3.3: Chuẩn hóa kích thước & Căn tâm
+      // 5. Chuẩn hóa kích thước & Căn tâm theo Box3 sau khi reset rotation
       const box = new THREE.Box3().setFromObject(scene);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
@@ -233,82 +256,83 @@ function CompanionEntity({
     currentPosRef.current = [nextX, nextY, nextZ];
     groupRef.current.position.set(nextX, nextY, nextZ);
 
-    // Hướng nhìn theo vector vận tốc
-    const nextPos = new THREE.Vector3(nextX, nextY, nextZ);
-    const velocity = nextPos.clone().sub(prevPos);
-    if (velocity.lengthSq() > 0.00001) {
-      currentVelocityRef.current.lerp(velocity.normalize(), 0.1);
-      const lookTarget = nextPos.clone().add(currentVelocityRef.current);
-      groupRef.current.lookAt(lookTarget);
+    // Tính vector vận tốc
+    const velocity = new THREE.Vector3(nextX - prevPos.x, nextY - prevPos.y, nextZ - prevPos.z);
+    if (velocity.lengthSq() > 0.000001) {
+      currentVelocityRef.current.lerp(velocity, Math.min(1, delta * 4.0));
+
+      // Hướng mặt theo mặt phẳng ngang targetYaw = Math.atan2(velocity.x, velocity.z)
+      const targetYaw = Math.atan2(currentVelocityRef.current.x, currentVelocityRef.current.z);
+      let diffYaw = (targetYaw - groupRef.current.rotation.y) % (Math.PI * 2);
+      if (diffYaw > Math.PI) diffYaw -= Math.PI * 2;
+      if (diffYaw < -Math.PI) diffYaw += Math.PI * 2;
+      groupRef.current.rotation.y += diffYaw * Math.min(1, delta * 3.0);
+
+      // Giới hạn góc chúc đầu / ngửa cổ trong khoảng [-0.15, 0.15] rad
+      const targetPitch = THREE.MathUtils.clamp(-currentVelocityRef.current.y * 0.4, -0.15, 0.15);
+      groupRef.current.rotation.x = THREE.MathUtils.lerp(
+        groupRef.current.rotation.x,
+        targetPitch,
+        Math.min(1, delta * 3.0),
+      );
+      groupRef.current.rotation.z = 0;
     }
 
     // Lớp đàn hồi bập bềnh bổ trợ
     const pose = computeProceduralCompanionPose(elapsed, isExcited);
     modelInnerRef.current.position.y = pose.offsetY;
 
-    // BƯỚC 3.4: Điều khiển cử động trực tiếp trên khớp xương thật (THREE.Bone)
+    // Điều khiển cử động khớp xương: CỘNG THÊM dao động nhỏ vào góc gốc restRotation
     const bones = bonesMapRef.current;
+    const rotateBone = (name: string, dx = 0, dy = 0, dz = 0) => {
+      const bone = bones[name];
+      if (!bone) return;
+      const rest = bone.userData.restRotation as THREE.Euler | undefined;
+      if (rest) {
+        bone.rotation.set(rest.x + dx, rest.y + dy, rest.z + dz);
+      }
+    };
 
     if (id === 'froakie') {
-      const spine = bones['spine'] || bones['waist'];
-      const neck = bones['neck'];
-      const head = bones['head'];
-      const leftArm = bones['left_arm_01'];
-      const rightArm = bones['right_arm_01'];
-      const leftLeg = bones['left_leg_01'];
-      const rightLeg = bones['right_leg_01'];
-      const leftFoot = bones['left_foot'];
-      const rightFoot = bones['right_foot'];
-
-      if (spine) spine.rotation.y = Math.sin(elapsed * 2.2) * 0.08;
-      if (neck) neck.rotation.x = Math.sin(elapsed * 2.2 + 0.3) * 0.06;
-      if (head) head.rotation.x = Math.sin(elapsed * 2.2 + 0.6) * 0.09;
+      rotateBone('spine', 0, Math.sin(elapsed * 2.2) * 0.08, 0);
+      rotateBone('neck', Math.sin(elapsed * 2.2 + 0.3) * 0.06, 0, 0);
+      rotateBone('head', Math.sin(elapsed * 2.2 + 0.6) * 0.08, 0, 0);
 
       if (isExcited) {
-        // Vẫy hai tay lên cao vui mừng
-        if (leftArm) leftArm.rotation.z = Math.sin(elapsed * 7.0) * 0.3 + 0.8;
-        if (rightArm) rightArm.rotation.z = -Math.sin(elapsed * 7.0) * 0.3 - 0.8;
+        // Vẫy 2 tay lên cao mừng rỡ
+        rotateBone('left_arm_01', 0, 0, Math.sin(elapsed * 7.0) * 0.18 + 0.2);
+        rotateBone('right_arm_01', 0, 0, -Math.sin(elapsed * 7.0) * 0.18 - 0.2);
       } else {
         // Khua tay bơi nhẹ nhàng
-        if (leftArm) leftArm.rotation.z = Math.sin(elapsed * 2.5) * 0.25 + 0.2;
-        if (rightArm) rightArm.rotation.z = -Math.sin(elapsed * 2.5) * 0.25 - 0.2;
+        rotateBone('left_arm_01', 0, 0, Math.sin(elapsed * 2.5) * 0.12 + 0.06);
+        rotateBone('right_arm_01', 0, 0, -Math.sin(elapsed * 2.5) * 0.12 - 0.06);
       }
 
       // Đạp chân bơi lội
-      if (leftLeg) leftLeg.rotation.x = Math.sin(elapsed * 2.5) * 0.35;
-      if (rightLeg) rightLeg.rotation.x = -Math.sin(elapsed * 2.5) * 0.35;
-      if (leftFoot) leftFoot.rotation.x = Math.cos(elapsed * 2.5) * 0.25;
-      if (rightFoot) rightFoot.rotation.x = -Math.cos(elapsed * 2.5) * 0.25;
+      const legSwim = Math.sin(elapsed * 2.5) * 0.18;
+      rotateBone('left_leg_01', legSwim, 0, 0);
+      rotateBone('right_leg_01', -legSwim, 0, 0);
+      rotateBone('left_foot', Math.cos(elapsed * 2.5) * 0.12, 0, 0);
+      rotateBone('right_foot', -Math.cos(elapsed * 2.5) * 0.12, 0, 0);
     } else if (id === 'deerling') {
-      const spine = bones['spine_01'] || bones['waist'];
-      const neck = bones['neck'];
-      const head = bones['head'];
-      const leftEar = bones['left_ear'];
-      const rightEar = bones['right_ear'];
-      const tail = bones['tail'];
-      const leftArm = bones['left_arm_01'];
-      const rightArm = bones['right_arm_01'];
-      const leftLeg = bones['left_leg_01'];
-      const rightLeg = bones['right_leg_01'];
-
-      if (spine) spine.rotation.x = Math.sin(elapsed * 2.4) * 0.06;
-      if (neck) neck.rotation.y = Math.sin(elapsed * 2.4 + 0.3) * 0.06;
-      if (head) head.rotation.x = Math.sin(elapsed * 2.4 + 0.6) * 0.08;
+      rotateBone('spine_01', Math.sin(elapsed * 2.4) * 0.05, 0, 0);
+      rotateBone('neck', 0, Math.sin(elapsed * 2.4 + 0.3) * 0.06, 0);
+      rotateBone('head', Math.sin(elapsed * 2.4 + 0.6) * 0.07, 0, 0);
 
       // Vẫy tai
-      const earWave = Math.sin(elapsed * (isExcited ? 8.0 : 3.2)) * 0.18;
-      if (leftEar) leftEar.rotation.z = earWave;
-      if (rightEar) rightEar.rotation.z = -earWave;
+      const earWave = Math.sin(elapsed * (isExcited ? 8.0 : 3.2)) * 0.15;
+      rotateBone('left_ear', 0, 0, earWave);
+      rotateBone('right_ear', 0, 0, -earWave);
 
       // Vẫy đuôi
-      if (tail) tail.rotation.y = Math.sin(elapsed * 4.5) * 0.28;
+      rotateBone('tail', 0, Math.sin(elapsed * 4.5) * 0.2, 0);
 
-      // Bước 4 chân như đang bay lượn
-      const legStep = Math.sin(elapsed * 2.6) * 0.28;
-      if (leftArm) leftArm.rotation.x = legStep;
-      if (rightArm) rightArm.rotation.x = -legStep;
-      if (leftLeg) leftLeg.rotation.x = -legStep;
-      if (rightLeg) rightLeg.rotation.x = legStep;
+      // Bước chân nhẹ nhàng như lướt trong vũ trụ
+      const legStep = Math.sin(elapsed * 2.6) * 0.18;
+      rotateBone('left_arm_01', legStep, 0, 0);
+      rotateBone('right_arm_01', -legStep, 0, 0);
+      rotateBone('left_leg_01', -legStep, 0, 0);
+      rotateBone('right_leg_01', legStep, 0, 0);
     }
   });
 
