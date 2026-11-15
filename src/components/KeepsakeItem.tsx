@@ -18,13 +18,14 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   const gltf = useGLTF(item.url);
   const clonedScene = useMemo(() => gltf.scene.clone(), [gltf.scene]);
   const rigidBodyRef = useRef<RapierRigidBody>(null);
+  const visualGroupRef = useRef<THREE.Group>(null);
 
   const selectedKeepsakeId = useUniverseStore((s) => s.selectedKeepsakeId);
   const selectKeepsake = useUniverseStore((s) => s.selectKeepsake);
 
   const isSelected = selectedKeepsakeId === item.id;
 
-  // Hạt giống pha riêng cho từng kỷ vật để dao động trôi nổi và xoay khác nhau
+  // Hạt giống pha riêng cho từng kỷ vật để dao động bập bềnh khác nhau
   const seed = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < item.id.length; i++) {
@@ -58,10 +59,10 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
     const pos = rigidBodyRef.current.translation();
     const [ix, iy, iz] = computeGravityWellImpulse([pos.x, pos.y, pos.z], 5.5, 0.45);
 
-    // 2. Dòng chảy không trọng lực êm dịu (Zero-G Ambient Drift Force)
-    const fx = Math.sin(elapsed * 0.45 + seed) * 0.04;
-    const fy = Math.cos(elapsed * 0.38 + seed * 1.7) * 0.04;
-    const fz = Math.sin(elapsed * 0.41 + seed * 2.3) * 0.04;
+    // 2. Dòng chảy không trọng lực rất nhẹ nhàng (0.006) để kỷ vật bập bềnh êm ái tại chỗ
+    const fx = Math.sin(elapsed * 0.45 + seed) * 0.006;
+    const fy = Math.cos(elapsed * 0.38 + seed * 1.7) * 0.006;
+    const fz = Math.sin(elapsed * 0.41 + seed * 2.3) * 0.006;
 
     rigidBodyRef.current.applyImpulse(
       {
@@ -72,11 +73,12 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       true,
     );
 
-    // 3. Vận tốc góc bập bềnh, xoay chầm chậm tự nhiên trong không gian 3D
-    const tx = Math.sin(elapsed * 0.22 + seed) * 0.008 * delta;
-    const ty = Math.cos(elapsed * 0.26 + seed * 1.5) * 0.01 * delta;
-    const tz = Math.sin(elapsed * 0.19 + seed * 2.0) * 0.006 * delta;
-    rigidBodyRef.current.applyTorqueImpulse({ x: tx, y: ty, z: tz }, true);
+    // 3. Nghiêng và xoay bập bềnh cực nhẹ trên visual group (KHÔNG gọi applyTorqueImpulse để tránh cộng dồn vận tốc quay)
+    if (visualGroupRef.current) {
+      visualGroupRef.current.rotation.y += delta * 0.06;
+      visualGroupRef.current.rotation.x = Math.sin(elapsed * 0.35 + seed) * 0.05;
+      visualGroupRef.current.rotation.z = Math.cos(elapsed * 0.28 + seed * 1.2) * 0.03;
+    }
   });
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -106,7 +108,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       e.clientY - pointerStartRef.current.clientY,
     );
 
-    // Người dùng vuốt kéo trực tiếp lên kỷ vật (khoảng cách >= 8px)
+    // Người dùng vuốt/gạt trực tiếp lên kỷ vật (khoảng cách >= 8px)
     if (distancePx >= 8 && rigidBodyRef.current) {
       const deltaWorld: [number, number, number] = [
         lastWorldPointRef.current.x - pointerStartRef.current.worldPoint.x,
@@ -114,13 +116,13 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
         lastWorldPointRef.current.z - pointerStartRef.current.worldPoint.z,
       ];
 
-      const [fx, fy, fz] = computeFlickImpulse(deltaWorld, duration, 7);
+      const [fx, fy, fz] = computeFlickImpulse(deltaWorld, duration, 6);
       rigidBodyRef.current.applyImpulse({ x: fx, y: fy, z: fz }, true);
       rigidBodyRef.current.applyTorqueImpulse(
         {
-          x: fy * 0.15,
-          y: -fx * 0.15,
-          z: (Math.random() - 0.5) * 0.1,
+          x: fy * 0.12,
+          y: -fx * 0.12,
+          z: (Math.random() - 0.5) * 0.08,
         },
         true,
       );
@@ -145,8 +147,8 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       ref={rigidBodyRef}
       colliders="hull"
       gravityScale={0}
-      linearDamping={0.18}
-      angularDamping={0.18}
+      linearDamping={0.9}
+      angularDamping={2.4}
       position={item.initialPosition}
     >
       <group
@@ -156,7 +158,9 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
         onPointerUp={handlePointerUp}
         onClick={handleClick}
       >
-        <primitive object={clonedScene} />
+        <group ref={visualGroupRef}>
+          <primitive object={clonedScene} />
+        </group>
       </group>
     </RigidBody>
   );

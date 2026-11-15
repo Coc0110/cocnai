@@ -158,11 +158,11 @@ function CosmicNebulaDome() {
 }
 
 /**
- * Bầu trời đêm vũ trụ phân bố đều 360 độ (2.060 ngôi sao) chuyển động tự xoay êm dịu:
+ * Bầu trời đêm vũ trụ phân bố đều 360 độ (2.400 ngôi sao) chuyển động tự xoay êm dịu:
  * - Vùng trung tâm (r < 7.5) được chừa trống để cụm kỷ vật và Cóc & Nai thoáng đãng.
- * - Nhóm 1 (1.540 sao nhỏ): r: 16.0..42.0, aSize: 2.2..4.2, aBaseBrightness: 0.45..0.85.
- * - Nhóm 2 (440 sao tầm trung): r: 8.0..24.0, aSize: 3.8..6.2, aBaseBrightness: 0.65..0.95.
- * - Nhóm 3 (80 sao sáng điểm xuyết): r: 9.0..28.0, aSize: 6.5..10.5, aBaseBrightness: 0.85..1.0.
+ * - Nhóm 1 (1.800 sao nhỏ): r: 16.0..42.0, aSize: 2.2..4.2, aBaseBrightness: 0.45..0.85.
+ * - Nhóm 2 (510 sao tầm trung): r: 8.0..24.0, aSize: 3.8..6.2, aBaseBrightness: 0.65..0.95.
+ * - Nhóm 3 (90 sao sáng điểm xuyết): r: 9.0..28.0, aSize: 6.5..10.5, aBaseBrightness: 0.85..1.0.
  * - Toàn bộ hệ sao tự xoay nhẹ nhàng trên 3 trục theo thời gian.
  */
 function FlowingCosmicStarfield() {
@@ -170,7 +170,7 @@ function FlowingCosmicStarfield() {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
   const { positions, colors, sizes, phases, speeds, baseBrightness } = useMemo(() => {
-    const totalStars = 2060;
+    const totalStars = 2400;
     const pos = new Float32Array(totalStars * 3);
     const col = new Float32Array(totalStars * 3);
     const sz = new Float32Array(totalStars);
@@ -199,18 +199,18 @@ function FlowingCosmicStarfield() {
       let starSize: number;
       let brightness: number;
 
-      if (i < 1540) {
-        // Nhóm 1: 1.540 ngôi sao nhỏ tạo chiều sâu nền xa
+      if (i < 1800) {
+        // Nhóm 1: 1.800 ngôi sao nhỏ tạo chiều sâu nền xa
         radius = 16.0 + Math.random() * 26.0;               // r: 16.0 .. 42.0
         starSize = 2.2 + Math.random() * 2.0;               // aSize: 2.2 .. 4.2
         brightness = 0.45 + Math.random() * 0.40;           // aBaseBrightness: 0.45 .. 0.85
-      } else if (i < 1980) {
-        // Nhóm 2: 440 ngôi sao tầm trung
+      } else if (i < 2310) {
+        // Nhóm 2: 510 ngôi sao tầm trung
         radius = 8.0 + Math.random() * 16.0;                // r: 8.0 .. 24.0
         starSize = 3.8 + Math.random() * 2.4;               // aSize: 3.8 .. 6.2
         brightness = 0.65 + Math.random() * 0.30;           // aBaseBrightness: 0.65 .. 0.95
       } else {
-        // Nhóm 3: 80 ngôi sao sáng điểm xuyết
+        // Nhóm 3: 90 ngôi sao sáng điểm xuyết
         radius = 9.0 + Math.random() * 19.0;                // r: 9.0 .. 28.0
         starSize = 6.5 + Math.random() * 4.0;               // aSize: 6.5 .. 10.5
         brightness = 0.85 + Math.random() * 0.15;           // aBaseBrightness: 0.85 .. 1.0
@@ -355,7 +355,7 @@ export function CosmicEnvironment(): JSX.Element {
       {/* Vòm trời đêm & sương tinh vân dịu */}
       <CosmicNebulaDome />
 
-      {/* Bầu trời sao 2.060 hạt tự xoay nhẹ nhàng 360 độ */}
+      {/* Bầu trời sao 2.400 hạt tự xoay nhẹ nhàng 360 độ */}
       <FlowingCosmicStarfield />
     </>
   );
