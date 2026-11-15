@@ -3,87 +3,62 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 /**
- * Photorealistic deep-sky starfield matching telescope astrophotography:
- * pure natural pinpoint stars across multiple depth spheres,
- * with subtle brightness distribution and gentle twinkle, without any over-bright stars.
+ * Uniformly distributed, gentle 3D starfield:
+ * - Positioned close enough to envelop the scene and camera (radius 14 to 45) for rich 3D parallax.
+ * - Perfectly isotropic and evenly scattered across 360 degrees (no clustering, no eye strain).
+ * - Soft Gaussian circular points that look calm, crisp, and comfortable.
  */
-function NaturalDeepStarfield() {
+function UniformPeacefulStarfield() {
   const pointsRef = useRef<THREE.Points>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
   const { positions, colors, sizes, phases, opacities } = useMemo(() => {
-    const totalStars = 18000;
+    // 2,600 stars is optimal: rich and starry without high-frequency visual clutter
+    const totalStars = 2600;
     const pos = new Float32Array(totalStars * 3);
     const col = new Float32Array(totalStars * 3);
     const sz = new Float32Array(totalStars);
     const ph = new Float32Array(totalStars);
     const op = new Float32Array(totalStars);
 
-    // Natural astronomical white hues
+    // Natural soothing starry hues (soft white, pale ice white, warm silvery ivory)
     const starHues = [
-      [1.0, 1.0, 1.0],     // Neutral white
-      [0.93, 0.96, 1.0],   // Faint cool white
-      [0.98, 0.98, 0.95],  // Faint warm white
-      [0.88, 0.94, 1.0],   // Soft ice white
+      [0.96, 0.98, 1.0],   // Soft diamond white
+      [0.88, 0.94, 1.0],   // Pale cool white
+      [1.0, 0.98, 0.94],   // Faint warm ivory
+      [0.92, 0.95, 0.98],  // Silvery white
     ];
 
     let pIdx = 0;
     let cIdx = 0;
 
     for (let i = 0; i < totalStars; i++) {
-      let x = 0, y = 0, z = 0;
-      let starSize = 0.4;
-      let baseOpacity = 0.6;
+      // 100% uniform isotropic distribution on a 3D spherical volume (radius 14 to 46)
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
 
-      if (i < 8000) {
-        // Deep background celestial sphere (r: 70 -> 180) - dense faint micro-stars
-        const radius = 70 + Math.random() * 110;
-        const u = Math.random();
-        const v = Math.random();
-        const theta = u * 2.0 * Math.PI;
-        const phi = Math.acos(2.0 * v - 1.0);
+      // Distance distribution: 65% mid-sphere (20-45), 35% closer sphere (14-22)
+      let radius: number;
+      let starSize: number;
+      let baseOpacity: number;
 
-        x = radius * Math.sin(phi) * Math.cos(theta);
-        y = radius * Math.sin(phi) * Math.sin(theta);
-        z = radius * Math.cos(phi);
-
-        starSize = 0.3 + Math.random() * 0.4;
-        baseOpacity = 0.35 + Math.random() * 0.45;
-      } else if (i < 14000) {
-        // Subtle galactic star cluster concentration (mimicking the central cluster in reference photo)
-        const clusterRadius = 50 + Math.random() * 70;
-        const spread = 0.65;
-        const cx = 0.08 + (Math.random() - 0.5) * spread;
-        const cy = 0.12 + (Math.random() - 0.5) * spread;
-        const cz = -1.0 + (Math.random() - 0.5) * 0.4;
-        const dir = new THREE.Vector3(cx, cy, cz).normalize();
-
-        const jitter = (Math.random() - 0.5) * 0.38;
-        dir.x += jitter;
-        dir.y += jitter;
-        dir.normalize().multiplyScalar(clusterRadius);
-
-        x = dir.x;
-        y = dir.y;
-        z = dir.z;
-
-        starSize = 0.35 + Math.random() * 0.45;
-        baseOpacity = 0.4 + Math.random() * 0.5;
+      if (i < 900) {
+        // Closer shell (14 to 22) - smooth parallax as camera orbits
+        radius = 14 + Math.random() * 8;
+        starSize = 1.0 + Math.random() * 0.8;
+        baseOpacity = 0.45 + Math.random() * 0.35;
       } else {
-        // Mid-space cosmic volume (r: 25 -> 70) for realistic 3D motion parallax
-        const radius = 25 + Math.random() * 45;
-        const u = Math.random();
-        const v = Math.random();
-        const theta = u * 2.0 * Math.PI;
-        const phi = Math.acos(2.0 * v - 1.0);
-
-        x = radius * Math.sin(phi) * Math.cos(theta);
-        y = radius * Math.sin(phi) * Math.sin(theta);
-        z = radius * Math.cos(phi);
-
-        starSize = 0.4 + Math.random() * 0.45;
-        baseOpacity = 0.5 + Math.random() * 0.45;
+        // Enveloping celestial dome (22 to 46)
+        radius = 22 + Math.random() * 24;
+        starSize = 0.8 + Math.random() * 0.9;
+        baseOpacity = 0.4 + Math.random() * 0.4;
       }
+
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.sin(phi) * Math.sin(theta);
+      const z = radius * Math.cos(phi);
 
       pos[pIdx] = x;
       pos[pIdx + 1] = y;
@@ -144,13 +119,14 @@ function NaturalDeepStarfield() {
 
           void main() {
             vColor = aColor;
-            // Very gentle, calm natural twinkling without jarring flashes
-            float twinkle = 0.82 + 0.18 * sin(uTime * 1.2 + aPhase * 2.0);
+            // Extremely calm and subtle breathing twinkle (no flickering)
+            float twinkle = 0.88 + 0.12 * sin(uTime * 0.9 + aPhase * 2.0);
             vAlpha = aOpacity * twinkle;
 
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            // Sharp pinpoint point-size, proportional to distance
-            gl_PointSize = max(1.2, aSize * (110.0 / -mvPosition.z));
+            // Proportional size with safe clamps to remain comfortable and clear
+            float pSize = aSize * (75.0 / -mvPosition.z);
+            gl_PointSize = clamp(pSize, 2.0, 5.5);
             gl_Position = projectionMatrix * mvPosition;
           }
         `}
@@ -163,9 +139,9 @@ function NaturalDeepStarfield() {
             float dist = length(coord);
             if (dist > 0.5) discard;
 
-            // Clean crisp circular dot with subtle anti-aliasing edge
-            float edge = smoothstep(0.5, 0.1, dist);
-            gl_FragColor = vec4(vColor, edge * vAlpha);
+            // Soft Gaussian circular point: smooth, non-pixelated and very comfortable to look at
+            float alpha = exp(-dist * dist * 10.0) * vAlpha;
+            gl_FragColor = vec4(vColor, alpha);
           }
         `}
       />
@@ -174,21 +150,27 @@ function NaturalDeepStarfield() {
 }
 
 /**
- * Very subtle near-space dust motes drifting in zero gravity,
- * providing tactile 3D parallax without being bright or distracting.
+ * Very gentle floating stellar dust in the immediate foreground (radius 4 to 12)
+ * for natural depth perception without clutter.
  */
-function SubtleDriftingMotes() {
+function GentleForegroundDust() {
   const pointsRef = useRef<THREE.Points>(null);
 
   const { positions, originalPositions } = useMemo(() => {
-    const count = 90;
+    const count = 60;
     const pos = new Float32Array(count * 3);
     const orig = new Float32Array(count * 3);
 
     for (let i = 0; i < count; i++) {
-      const x = (Math.random() - 0.5) * 14;
-      const y = (Math.random() - 0.5) * 14;
-      const z = (Math.random() - 0.5) * 14;
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = 4 + Math.random() * 8;
+
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
 
       pos[i * 3] = x;
       pos[i * 3 + 1] = y;
@@ -204,18 +186,18 @@ function SubtleDriftingMotes() {
   useFrame((state) => {
     if (!pointsRef.current) return;
     const posAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
-    const t = state.clock.getElapsedTime() * 0.08;
+    const t = state.clock.getElapsedTime() * 0.05;
 
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 60; i++) {
       const ox = originalPositions[i * 3];
       const oy = originalPositions[i * 3 + 1];
       const oz = originalPositions[i * 3 + 2];
 
       posAttr.setXYZ(
         i,
-        ox + Math.sin(t + i * 0.3) * 0.25,
-        oy + Math.cos(t * 0.7 + i * 0.4) * 0.25,
-        oz + Math.sin(t * 0.5 + i * 0.5) * 0.25,
+        ox + Math.sin(t + i * 0.3) * 0.15,
+        oy + Math.cos(t * 0.8 + i * 0.4) * 0.15,
+        oz + Math.sin(t * 0.6 + i * 0.5) * 0.15,
       );
     }
     posAttr.needsUpdate = true;
@@ -227,10 +209,10 @@ function SubtleDriftingMotes() {
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        size={0.035}
-        color="#e2e8f0"
+        size={0.05}
+        color="#f1f5f9"
         transparent
-        opacity={0.35}
+        opacity={0.3}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
@@ -241,20 +223,20 @@ function SubtleDriftingMotes() {
 export function CosmicEnvironment(): JSX.Element {
   return (
     <>
-      {/* Pure deep black void of deep space */}
+      {/* Pure deep black space */}
       <color attach="background" args={['#000000']} />
 
-      {/* Balanced, natural illumination for floating keepsakes and companions */}
-      <ambientLight intensity={0.6} color="#e2e8f0" />
+      {/* Balanced, soft studio lighting for floating keepsakes and companions */}
+      <ambientLight intensity={0.65} color="#e2e8f0" />
       <directionalLight position={[5, 8, 6]} intensity={1.5} color="#fffcf5" />
       <directionalLight position={[-6, -4, -4]} intensity={0.7} color="#cbd5e1" />
       <directionalLight position={[0, 6, -8]} intensity={1.0} color="#e2e8f0" />
 
-      {/* 1. Realistic deep-sky 18,000 pinpoint starfield matching telescope photography */}
-      <NaturalDeepStarfield />
+      {/* 1. Evenly distributed, soothing 360-degree starfield enveloping the scene */}
+      <UniformPeacefulStarfield />
 
-      {/* 2. Gentle floating motes for tactile 3D parallax */}
-      <SubtleDriftingMotes />
+      {/* 2. Soft foreground stardust providing tactile 3D parallax */}
+      <GentleForegroundDust />
     </>
   );
 }
