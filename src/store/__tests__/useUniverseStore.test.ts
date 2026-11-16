@@ -8,12 +8,16 @@ describe('useUniverseStore', () => {
 
   it('transitions cleanly between overview, single keepsake selection, and switching keepsakes', () => {
     expect(useUniverseStore.getState().selectedKeepsakeId).toBeNull();
-    useUniverseStore.getState().selectKeepsake('keepsake-1');
+    expect(useUniverseStore.getState().selectedKeepsakeOrigin).toBeNull();
+    useUniverseStore.getState().selectKeepsake('keepsake-1', [1, 2, 3]);
     expect(useUniverseStore.getState().selectedKeepsakeId).toBe('keepsake-1');
+    expect(useUniverseStore.getState().selectedKeepsakeOrigin).toEqual([1, 2, 3]);
     useUniverseStore.getState().selectKeepsake('keepsake-2');
     expect(useUniverseStore.getState().selectedKeepsakeId).toBe('keepsake-2');
+    expect(useUniverseStore.getState().selectedKeepsakeOrigin).toBeNull();
     useUniverseStore.getState().clearSelection();
     expect(useUniverseStore.getState().selectedKeepsakeId).toBeNull();
+    expect(useUniverseStore.getState().selectedKeepsakeOrigin).toBeNull();
   });
 
   it('sets excitedCompanion when triggered', () => {

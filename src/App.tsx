@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
@@ -6,6 +6,10 @@ import { CosmicEnvironment } from './components/CosmicEnvironment';
 import { KeepsakeItem } from './components/KeepsakeItem';
 import { KeepsakeInspector } from './components/KeepsakeInspector';
 import { CompanionPair } from './components/CompanionPair';
+import {
+  TwoFingerCameraController,
+  OrbitControlsLike,
+} from './components/TwoFingerCameraController';
 import { useUniverseStore } from './store/useUniverseStore';
 import { KeepsakeManifestItem } from './types/universe';
 import rawKeepsakes from './data/keepsakes.json';
@@ -14,6 +18,7 @@ const keepsakes = rawKeepsakes as KeepsakeManifestItem[];
 
 export default function App(): JSX.Element {
   const selectedKeepsakeId = useUniverseStore((s) => s.selectedKeepsakeId);
+  const controlsRef = useRef<OrbitControlsLike>(null);
 
   return (
     <div
@@ -48,9 +53,16 @@ export default function App(): JSX.Element {
 
           <KeepsakeInspector items={keepsakes} />
 
+          <TwoFingerCameraController
+            controlsRef={controlsRef}
+            enabled={selectedKeepsakeId === null}
+          />
+
           <OrbitControls
+            ref={controlsRef as any}
             makeDefault
             enabled={selectedKeepsakeId === null}
+            enableZoom={false}
             enablePan={false}
             enableDamping
             dampingFactor={0.07}

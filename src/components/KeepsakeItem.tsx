@@ -9,7 +9,10 @@ import {
   computeFlickImpulse,
   computeGravityWellImpulse,
 } from '../utils/physicsMath';
-import { prepareKeepsakeScene } from '../utils/prepareKeepsakeScene';
+import {
+  prepareKeepsakeScene,
+  animateSuppleBracelet,
+} from '../utils/prepareKeepsakeScene';
 
 interface KeepsakeItemProps {
   item: KeepsakeManifestItem;
@@ -83,6 +86,10 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       visualGroupRef.current.rotation.x = Math.sin(elapsed * 0.35 + seed) * 0.05;
       visualGroupRef.current.rotation.z = Math.cos(elapsed * 0.28 + seed * 1.2) * 0.03;
     }
+
+    if (item.id === 'clover-bracelet') {
+      animateSuppleBracelet(preparedScene, elapsed);
+    }
   });
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -142,7 +149,10 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
     if (distancePx < 8) {
       e.stopPropagation();
-      selectKeepsake(item.id);
+      const pos = rigidBodyRef.current
+        ? rigidBodyRef.current.translation()
+        : { x: item.initialPosition[0], y: item.initialPosition[1], z: item.initialPosition[2] };
+      selectKeepsake(item.id, [pos.x, pos.y, pos.z]);
     }
   };
 
