@@ -344,9 +344,9 @@ async function createEyeTextureSet(
 // HÀM TƯ THẾ NGỒI ẾCH CHUẨN ĐỘNG HỌC CHO FROAKIE (4 CHI CHẠM ĐẤT, ÚP PHẲNG CỔ TAY)
 // =============================================================================
 function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
-  // 1. Hạ thấp xương chậu xuống sát mặt đất để ngồi xổm như ếch
+  // 1. Hạ thấp xương chậu xuống sát mặt đất (0.078) để ngồi xổm như ếch
   if (bones['waist']) {
-    bones['waist'].position.set(0, 0.088, -0.035);
+    bones['waist'].position.set(0, 0.078, -0.035);
   }
 
   // 2. Đổ thân người về phía trước và ngẩng đầu nhìn thẳng
@@ -362,16 +362,17 @@ function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
   rotateBoneLocal(bones['left_foot'], 0, -0.25, 0);
   rotateBoneLocal(bones['right_foot'], 0, -0.25, 0);
 
-  // 4. Hai chi trước chống xuống đất, GẬP CỔ TAY (arm_03 và hand xoay ry âm) để lòng bàn tay nằm phẳng ngang trên mặt sàn
-  rotateBoneLocal(bones['left_arm_01'], -0.20, -0.35, -0.82);
-  rotateBoneLocal(bones['left_arm_02'], 0, -0.25, 0);
-  rotateBoneLocal(bones['left_arm_03'], 0, -0.35, 0);
-  rotateBoneLocal(bones['left_hand'], 0, -0.95, 0);
+  // 4. Hai chi trước chống thẳng xuống đất, xoay úp cổ tay (rx) + gập bản lề cổ tay (rz)
+  // giúp cả cổ tay lẫn đầu ngón tay đều nằm phẳng tại Y = 0.001 trên mặt sàn
+  rotateBoneLocal(bones['left_arm_01'], -0.20, -0.35, -0.85);
+  rotateBoneLocal(bones['left_arm_02'], 0, -0.35, 0);
+  rotateBoneLocal(bones['left_arm_03'], 0.45, 0, 0);
+  rotateBoneLocal(bones['left_hand'], 0.54, 0.04, 1.05);
 
-  rotateBoneLocal(bones['right_arm_01'], 0.20, -0.35, 0.82);
-  rotateBoneLocal(bones['right_arm_02'], 0, -0.25, 0);
-  rotateBoneLocal(bones['right_arm_03'], 0, -0.35, 0);
-  rotateBoneLocal(bones['right_hand'], 0, -0.95, 0);
+  rotateBoneLocal(bones['right_arm_01'], 0.20, -0.35, 0.85);
+  rotateBoneLocal(bones['right_arm_02'], 0, -0.35, 0);
+  rotateBoneLocal(bones['right_arm_03'], -0.45, 0, 0);
+  rotateBoneLocal(bones['right_hand'], -0.54, 0.04, -1.05);
 }
 
 // =============================================================================
@@ -615,14 +616,15 @@ function CompanionEntity({
       const lookDz = other.z - curPos.z;
       const dist2D = Math.hypot(lookDx, lookDz);
 
-      if (dist2D > 0.05) {
+      if (dist2D > 0.01) {
         const meetYaw = Math.atan2(lookDx, lookDz);
-        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 7.0);
+        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 8.0);
 
-        // Nếu đang gặp nhau trên cùng tầng, căn khoảng cách chuẩn 0.60 đơn vị để tay Froakie chạm đúng đỉnh đầu Deerling
-        if (sameLayer && dist2D > 0.62) {
-          const targetDist = 0.60;
-          const moveStep = (dist2D - targetDist) * 0.5 * Math.min(1, delta * 5.0);
+        // Căn khoảng cách chuẩn 0.88 đơn vị (cả khi dist2D < 0.88 lẫn dist2D > 0.88) để 2 model tuyệt đối không chồng lên nhau
+        if (sameLayer && Math.abs(dist2D - 0.88) > 0.01) {
+          const targetDist = 0.88;
+          const diff = dist2D - targetDist; // Âm thì lùi ra xa nhau, dương thì tiến lại gần
+          const moveStep = diff * 0.5 * Math.min(1, delta * 8.0);
           curPos.x += (lookDx / dist2D) * moveStep;
           curPos.z += (lookDz / dist2D) * moveStep;
           groupRef.current.position.copy(curPos);
@@ -634,24 +636,23 @@ function CompanionEntity({
         modelInnerRef.current.rotation.x = 0;
         resetAllBones(bones);
 
-        // Hạ nhẹ thân trước và khuỵu nhẹ 2 chân trước để cúi đầu xuống tầm tay của Froakie
+        // Khuỵu nhẹ 2 chân trước và cúi thấp đầu về phía trước (đỉnh đầu ở Y ~ 0.43, Z ~ +0.35)
         if (bones['waist']) {
-          bones['waist'].position.set(0, 0.232, -0.039);
+          bones['waist'].position.set(0, 0.215, -0.039);
         }
-        rotateBoneLocal(bones['left_arm_01'], 0, 0.35, 0);
-        rotateBoneLocal(bones['left_arm_02'], 0, -0.65, 0);
-        rotateBoneLocal(bones['left_hand'], 0, 0.30, 0);
-        rotateBoneLocal(bones['right_arm_01'], 0, 0.35, 0);
-        rotateBoneLocal(bones['right_arm_02'], 0, -0.65, 0);
-        rotateBoneLocal(bones['right_hand'], 0, 0.30, 0);
+        rotateBoneLocal(bones['left_arm_01'], 0, 0.48, 0);
+        rotateBoneLocal(bones['left_arm_02'], 0, -0.85, 0);
+        rotateBoneLocal(bones['left_hand'], 0, 0.38, 0);
+        rotateBoneLocal(bones['right_arm_01'], 0, 0.48, 0);
+        rotateBoneLocal(bones['right_arm_02'], 0, -0.85, 0);
+        rotateBoneLocal(bones['right_hand'], 0, 0.38, 0);
 
-        // Cúi cổ và đầu xuống đón bàn tay xoa đầu của Froakie
         const nod = Math.sin(elapsed * 4.5) * 0.04;
-        rotateBoneLocal(bones['spine_02'], 0, -0.30, 0);
-        rotateBoneLocal(bones['neck'], 0, -0.76 + nod, 0);
-        rotateBoneLocal(bones['head'], 0, -0.22 - nod, Math.sin(elapsed * 3.2) * 0.05);
+        rotateBoneLocal(bones['spine_02'], 0, -0.38, 0);
+        rotateBoneLocal(bones['neck'], 0, -0.88 + nod, 0);
+        rotateBoneLocal(bones['head'], 0, -0.25 - nod, Math.sin(elapsed * 3.2) * 0.05);
 
-        // Khẽ rung đôi tai và vẫy nhẹ đuôi đầy thích thú
+        // Khẽ rung đôi tai và vẫy đuôi
         const earTwitch = Math.sin(elapsed * 11.0) * 0.22;
         rotateBoneLocal(bones['left_ear'], 0, 0, earTwitch);
         rotateBoneLocal(bones['right_ear'], 0, 0, -earTwitch);
@@ -660,27 +661,27 @@ function CompanionEntity({
         modelInnerRef.current.position.y = 0;
         modelInnerRef.current.rotation.x = 0;
 
-        // Ngồi tư thế ếch (tay trái chống phẳng trên mặt đất)
+        // Ngồi vững tư thế ếch (tay trái chống phẳng dưới đất)
         applyFrogSitPose(bones, Math.sin(elapsed * 3.5));
 
-        // Hơi rướn nhẹ ngực lên để vươn tay xoa đầu Deerling
+        // Hơi rướn ngực lên để vươn tay cao hơn
         if (bones['spine']?.userData.restQuat) {
           bones['spine'].quaternion.copy(bones['spine'].userData.restQuat);
         }
-        rotateBoneLocal(bones['spine'], 0, -0.48, 0);
+        rotateBoneLocal(bones['spine'], 0, -0.42, 0);
 
-        // Reset riêng cánh tay phải rồi giơ cao về phía trước đặt lên đỉnh đầu Deerling và xoa nhẹ
+        // Reset riêng cánh tay phải rồi vươn CAO lên phía trước (Y ~ 0.52, Z ~ +0.47) đặt đúng lên đỉnh đầu Deerling
         ['right_arm_01', 'right_arm_02', 'right_arm_03', 'right_hand'].forEach((n) => {
           if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
         });
 
-        const patStroke = Math.sin(elapsed * 6.5) * 0.14;
-        const patUpDown = Math.cos(elapsed * 6.5) * 0.08;
+        const patStroke = Math.sin(elapsed * 6.5) * 0.12;
+        const patUpDown = Math.cos(elapsed * 6.5) * 0.06;
 
-        rotateBoneLocal(bones['right_arm_01'], 0.20, -1.32 + patStroke * 0.5, -0.48 + patUpDown);
-        rotateBoneLocal(bones['right_arm_02'], 0, -0.32 + patStroke, 0.22);
-        rotateBoneLocal(bones['right_arm_03'], 0.35, 0, 0);
-        rotateBoneLocal(bones['right_hand'], 0, -0.35 + patUpDown * 1.5, 0);
+        rotateBoneLocal(bones['right_arm_01'], -1.44, -1.02 + patStroke, -2.13 + patUpDown);
+        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.25 + patStroke * 0.8);
+        rotateBoneLocal(bones['right_arm_03'], 0, 0, 0);
+        rotateBoneLocal(bones['right_hand'], 0, 0, 0.35 + patUpDown * 1.5);
       }
       return;
     }
@@ -718,18 +719,18 @@ function CompanionEntity({
           deerlingStateTimerRef.current = 0;
         }
       } else if (state === 'SLEEP_CURL') {
-        // Nằm xuống cuộn tròn ngủ yên bình
+        // Dáng hươu/nai nằm nghỉ thanh thoát: 2 chân trước gập gọn về sau dưới ngực, 2 chân sau xếp bên sườn, cổ và đầu ngẩng tự nhiên
         const sleepDuration = deerlingDurationRef.current;
         const curlBlend =
           THREE.MathUtils.smoothstep(timer, 0.0, 0.9) *
           (1.0 - THREE.MathUtils.smoothstep(timer, sleepDuration - 0.9, sleepDuration));
-        const sleepBreath = Math.sin(elapsed * 2.0) * 0.03 * curlBlend;
+        const sleepBreath = Math.sin(elapsed * 2.0) * 0.025 * curlBlend;
 
         modelInnerRef.current.position.y = 0;
         modelInnerRef.current.rotation.x = 0;
         resetAllBones(bones);
 
-        // 1. Hạ thấp xương chậu để bụng nằm sát mặt đất
+        // 1. Hạ thấp xương chậu từ 0.257 xuống 0.115 để ngực và bụng tựa êm trên mặt đất
         if (bones['waist']) {
           bones['waist'].position.set(
             0,
@@ -738,35 +739,35 @@ function CompanionEntity({
           );
         }
 
-        // 2. Nghiêng nhẹ hông và uốn cong sống lưng + cổ + đầu cuộn tròn sang bên
-        rotateBoneLocal(bones['waist'], 0.12 * curlBlend, 0.05 * curlBlend, 0.15 * curlBlend);
-        rotateBoneLocal(bones['spine_01'], 0, sleepBreath, 0.25 * curlBlend);
-        rotateBoneLocal(bones['spine_02'], 0, -0.15 * curlBlend + sleepBreath, 0.48 * curlBlend);
-        rotateBoneLocal(bones['neck'], -0.75 * curlBlend, -0.38 * curlBlend, 0.25 * curlBlend);
-        rotateBoneLocal(bones['head'], -0.55 * curlBlend, (0.25 + sleepBreath) * curlBlend, 0.32 * curlBlend);
+        // 2. Giữ sống lưng, cổ và đầu thẳng tự nhiên, hơi ngoảnh nhẹ thanh thoát nhìn về phía trước
+        rotateBoneLocal(bones['waist'], 0, 0.04 * curlBlend, 0);
+        rotateBoneLocal(bones['spine_01'], 0, (0.04 + sleepBreath) * curlBlend, 0);
+        rotateBoneLocal(bones['spine_02'], 0, (0.08 + sleepBreath) * curlBlend, 0);
+        rotateBoneLocal(bones['neck'], 0.18 * curlBlend, (0.06 + sleepBreath) * curlBlend, 0);
+        rotateBoneLocal(bones['head'], 0.15 * curlBlend, 0.05 * curlBlend, 0);
 
-        // 3. Gập gọn 2 chân trước dưới ngực
-        rotateBoneLocal(bones['left_arm_01'], 0, -0.45 * curlBlend, 0.12 * curlBlend);
-        rotateBoneLocal(bones['left_arm_02'], 0, -1.95 * curlBlend, 0);
-        rotateBoneLocal(bones['left_hand'], 0, -0.55 * curlBlend, 0);
+        // 3. Hai chân trước: bắp tay đưa nhẹ về trước (-0.65), khớp gối trước (arm_02) GẬP VỀ PHÍA SAU (+2.10) thu gọn dưới ngực
+        rotateBoneLocal(bones['left_arm_01'], 0, -0.65 * curlBlend, 0.08 * curlBlend);
+        rotateBoneLocal(bones['left_arm_02'], 0, 2.10 * curlBlend, 0);
+        rotateBoneLocal(bones['left_hand'], 0, 0.35 * curlBlend, 0);
 
-        rotateBoneLocal(bones['right_arm_01'], 0, -0.45 * curlBlend, -0.12 * curlBlend);
-        rotateBoneLocal(bones['right_arm_02'], 0, -1.95 * curlBlend, 0);
-        rotateBoneLocal(bones['right_hand'], 0, -0.55 * curlBlend, 0);
+        rotateBoneLocal(bones['right_arm_01'], 0, -0.65 * curlBlend, -0.08 * curlBlend);
+        rotateBoneLocal(bones['right_arm_02'], 0, 2.10 * curlBlend, 0);
+        rotateBoneLocal(bones['right_hand'], 0, 0.35 * curlBlend, 0);
 
-        // 4. Gập gọn 2 chân sau nép dưới bụng
-        rotateBoneLocal(bones['left_leg_01'], 0, -1.25 * curlBlend, 0.20 * curlBlend);
-        rotateBoneLocal(bones['left_leg_02'], 0, 1.55 * curlBlend, 0);
-        rotateBoneLocal(bones['left_foot'], 0, -1.25 * curlBlend, 0);
+        // 4. Hai chân sau: đùi thu về trước (-1.05), khớp cổ chân gập lại (+1.35), bàn chân hướng mũi về phía trước (-1.20) nằm dọc bên sườn
+        rotateBoneLocal(bones['left_leg_01'], 0, -1.05 * curlBlend, 0.18 * curlBlend);
+        rotateBoneLocal(bones['left_leg_02'], 0, 1.35 * curlBlend, 0);
+        rotateBoneLocal(bones['left_foot'], 0, -1.20 * curlBlend, 0);
 
-        rotateBoneLocal(bones['right_leg_01'], 0, -1.25 * curlBlend, -0.20 * curlBlend);
-        rotateBoneLocal(bones['right_leg_02'], 0, 1.55 * curlBlend, 0);
-        rotateBoneLocal(bones['right_foot'], 0, -1.25 * curlBlend, 0);
+        rotateBoneLocal(bones['right_leg_01'], 0, -1.05 * curlBlend, -0.18 * curlBlend);
+        rotateBoneLocal(bones['right_leg_02'], 0, 1.35 * curlBlend, 0);
+        rotateBoneLocal(bones['right_foot'], 0, -1.20 * curlBlend, 0);
 
-        // Tai cụp thư giãn và đuôi cuộn gọn
-        rotateBoneLocal(bones['left_ear'], 0, 0, -0.25 * curlBlend);
-        rotateBoneLocal(bones['right_ear'], 0, 0, 0.25 * curlBlend);
-        rotateBoneLocal(bones['tail'], 0, -0.35 * curlBlend, 0.25 * curlBlend);
+        // Tai và đuôi thư giãn nhẹ nhàng
+        rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 1.8) * 0.06 * curlBlend);
+        rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 1.8) * 0.06 * curlBlend);
+        rotateBoneLocal(bones['tail'], 0, -0.25 * curlBlend, 0.15 * curlBlend);
 
         if (timer >= sleepDuration) {
           startPosRef.current.copy(curPos);
@@ -1113,11 +1114,13 @@ function CompanionEntity({
           const armDown = -0.85 + stretch * 0.25 - landingReach * 0.20;
           rotateBoneLocal(bones['left_arm_01'], -0.20, armForward, armDown);
           rotateBoneLocal(bones['left_arm_02'], 0, -0.25 * (1 - stretch), 0);
-          rotateBoneLocal(bones['left_hand'], 0, 0.35, 0);
+          rotateBoneLocal(bones['left_arm_03'], 0.45, 0, 0);
+          rotateBoneLocal(bones['left_hand'], 0.54, 0.04, 0.85);
 
           rotateBoneLocal(bones['right_arm_01'], 0.20, armForward, -armDown);
           rotateBoneLocal(bones['right_arm_02'], 0, -0.25 * (1 - stretch), 0);
-          rotateBoneLocal(bones['right_hand'], 0, 0.35, 0);
+          rotateBoneLocal(bones['right_arm_03'], -0.45, 0, 0);
+          rotateBoneLocal(bones['right_hand'], -0.54, 0.04, -0.85);
 
           // Hai chân sau đạp duỗi ra sau ở giữa cú nhảy và thu về tư thế ngồi xổm khi tiếp đất
           const hipRy = THREE.MathUtils.lerp(-1.25, 0.25, stretch);
