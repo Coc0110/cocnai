@@ -13,14 +13,26 @@ const tempQuat = new THREE.Quaternion();
 // Các tầng độ cao không gian 3D của Vũ trụ Ký ức
 const Y_TIERS = [-2.0, -1.0, 0.0, 1.0, 2.0];
 
-function getRandomWaypoint(currentTierY?: number): THREE.Vector3 {
-  // 55% giữ nguyên tầng độ cao để đi bộ/ngồi, 45% đổi sang tầng khác để kích hoạt nhảy chuyển tầng
-  const y =
-    currentTierY !== undefined && Math.random() < 0.55
-      ? currentTierY
-      : Y_TIERS[Math.floor(Math.random() * Y_TIERS.length)];
-  const x = (Math.random() - 0.5) * 7.4; // -3.7 .. +3.7
-  const z = (Math.random() - 0.5) * 5.4 - 0.2; // -2.9 .. +2.5
+/**
+ * Chọn điểm đến ngẫu nhiên nhưng ưu tiên giữ nguyên tầng hoặc cùng tầng với bạn đồng hành
+ */
+function getRandomWaypoint(currentTierY?: number, partnerTierY?: number): THREE.Vector3 {
+  let y: number;
+  if (partnerTierY !== undefined && Math.random() < 0.65) {
+    y = partnerTierY;
+  } else if (currentTierY !== undefined && Math.random() < 0.70) {
+    y = currentTierY;
+  } else {
+    y = Y_TIERS[Math.floor(Math.random() * Y_TIERS.length)];
+  }
+
+  // Quãng đường di chuyển mỗi lần vừa phải (bán kính 1.6 đến 3.8)
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 1.6 + Math.random() * 2.2;
+  let x = Math.cos(angle) * dist;
+  let z = Math.sin(angle) * dist;
+  x = THREE.MathUtils.clamp(x, -3.7, 3.7);
+  z = THREE.MathUtils.clamp(z, -2.9, 2.5);
   return new THREE.Vector3(x, y, z);
 }
 
@@ -329,12 +341,12 @@ async function createEyeTextureSet(
 }
 
 // =============================================================================
-// HÀM TƯ THẾ NGỒI ẾCH CHUẨN ĐỘNG HỌC CHO FROAKIE (4 CHI CHẠM ĐẤT)
+// HÀM TƯ THẾ NGỒI ẾCH CHUẨN ĐỘNG HỌC CHO FROAKIE (4 CHI CHẠM ĐẤT, ÚP PHẲNG CỔ TAY)
 // =============================================================================
 function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
   // 1. Hạ thấp xương chậu xuống sát mặt đất để ngồi xổm như ếch
   if (bones['waist']) {
-    bones['waist'].position.set(0, 0.078, -0.035);
+    bones['waist'].position.set(0, 0.088, -0.035);
   }
 
   // 2. Đổ thân người về phía trước và ngẩng đầu nhìn thẳng
@@ -342,7 +354,7 @@ function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
   rotateBoneLocal(bones['neck'], 0, 0.32, 0);
   rotateBoneLocal(bones['head'], 0, 0.42 - breath * 0.03, 0);
 
-  // 3. Gập sâu 2 đùi lên sát bụng (ry âm) và gập cẳng chân (ry dương), mở rộng đầu gối sang 2 bên
+  // 3. Gập sâu 2 đùi lên sát bụng và gập cẳng chân, mở rộng đầu gối sang 2 bên
   rotateBoneLocal(bones['left_leg_01'], 0, -1.25, 0.30);
   rotateBoneLocal(bones['right_leg_01'], 0, -1.25, -0.30);
   rotateBoneLocal(bones['left_leg_02'], 0, 1.45, 0);
@@ -350,19 +362,24 @@ function applyFrogSitPose(bones: Record<string, THREE.Bone>, breath = 0) {
   rotateBoneLocal(bones['left_foot'], 0, -0.25, 0);
   rotateBoneLocal(bones['right_foot'], 0, -0.25, 0);
 
-  // 4. Hai chi trước chống thẳng xuống đất ở phía trước ngực, bàn tay xòe phẳng trên sàn
-  rotateBoneLocal(bones['left_arm_01'], -0.20, -0.35, -0.85);
-  rotateBoneLocal(bones['left_arm_02'], 0, -0.35, 0);
-  rotateBoneLocal(bones['left_hand'], 0, 0.35, 0);
+  // 4. Hai chi trước chống xuống đất, GẬP CỔ TAY (arm_03 và hand xoay ry âm) để lòng bàn tay nằm phẳng ngang trên mặt sàn
+  rotateBoneLocal(bones['left_arm_01'], -0.20, -0.35, -0.82);
+  rotateBoneLocal(bones['left_arm_02'], 0, -0.25, 0);
+  rotateBoneLocal(bones['left_arm_03'], 0, -0.35, 0);
+  rotateBoneLocal(bones['left_hand'], 0, -0.95, 0);
 
-  rotateBoneLocal(bones['right_arm_01'], 0.20, -0.35, 0.85);
-  rotateBoneLocal(bones['right_arm_02'], 0, -0.35, 0);
-  rotateBoneLocal(bones['right_hand'], 0, 0.35, 0);
+  rotateBoneLocal(bones['right_arm_01'], 0.20, -0.35, 0.82);
+  rotateBoneLocal(bones['right_arm_02'], 0, -0.25, 0);
+  rotateBoneLocal(bones['right_arm_03'], 0, -0.35, 0);
+  rotateBoneLocal(bones['right_hand'], 0, -0.95, 0);
 }
 
 // =============================================================================
 // COMPONENT ĐIỀU KHIỂN RIÊNG TỪNG LINH VẬT
 // =============================================================================
+type FroakieState = 'REST_SIT' | 'HOP_MOVE' | 'SCRATCH_HEAD' | 'WAVE_CAMERA';
+type DeerlingState = 'REST_STAND' | 'SLEEP_CURL' | 'WALKING' | 'LEAP_LAYER' | 'GRAZING' | 'LOOKING';
+
 interface CompanionEntityProps {
   id: 'froakie' | 'deerling';
   daeUrl: string;
@@ -405,15 +422,17 @@ function CompanionEntity({
   const startPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPos));
   const targetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPos));
 
-  // Trạng thái cho Deerling
-  const deerlingStateRef = useRef<'WALKING' | 'LEAP_LAYER' | 'GRAZING' | 'LOOKING'>('WALKING');
+  // Trạng thái cho Deerling (Mặc định bắt đầu bằng đứng nghỉ ngơi yên bình)
+  const deerlingStateRef = useRef<DeerlingState>('REST_STAND');
   const deerlingStateTimerRef = useRef<number>(0);
+  const deerlingDurationRef = useRef<number>(5.5);
   const walkPhaseRef = useRef<number>(0);
   const prevWalkSinRef = useRef<number>(0);
 
-  // Trạng thái cho Froakie
-  const froakieStateRef = useRef<'HOP_MOVE' | 'SCRATCH_HEAD' | 'WAVE_CAMERA'>('HOP_MOVE');
+  // Trạng thái cho Froakie (Mặc định bắt đầu bằng ngồi nghỉ ngơi thư giãn)
+  const froakieStateRef = useRef<FroakieState>('REST_SIT');
   const froakieStateTimerRef = useRef<number>(0);
+  const froakieDurationRef = useRef<number>(5.5);
 
   // Tải model và khởi tạo 3 texture mắt
   useEffect(() => {
@@ -550,7 +569,7 @@ function CompanionEntity({
     myPosRef.current.copy(curPos);
 
     // =========================================================================
-    // 1. HỆ THỐNG MẮT: LIẾC NHẸ, CHỚP MẮT & CƯỜI TÍT MẮT
+    // 1. HỆ THỐNG MẮT: LIẾC NHẸ, CHỚP MẮT, NGỦ NHẮM MẮT & CƯỜI TÍT MẮT
     // =========================================================================
     eyeTextures.openTex.offset.set(Math.sin(elapsed * 0.9) * 0.015, Math.cos(elapsed * 0.7) * 0.01);
 
@@ -566,9 +585,16 @@ function CompanionEntity({
       isExcited ||
       (id === 'froakie' && froakieStateRef.current === 'WAVE_CAMERA');
 
+    // Khi Deerling đang cuộn tròn ngủ: hiển thị mắt nhắm ngủ
+    const isDeerlingSleeping =
+      id === 'deerling' &&
+      deerlingStateRef.current === 'SLEEP_CURL' &&
+      deerlingStateTimerRef.current > 0.6 &&
+      deerlingStateTimerRef.current < deerlingDurationRef.current - 0.6;
+
     const activeEyeTex = shouldSmile
       ? eyeTextures.happyTex
-      : isBlinking
+      : isDeerlingSleeping || isBlinking
         ? eyeTextures.blinkTex
         : eyeTextures.openTex;
 
@@ -580,61 +606,197 @@ function CompanionEntity({
     }
 
     // =========================================================================
-    // 2. TƯƠNG TÁC GẶP GỠ (CHANCE ENCOUNTER: MEET_SPECIAL) & CHẠM VÀO (EXCITED)
+    // 2. TƯƠNG TÁC GẶP NHAU TRÊN CÙNG TẦNG (FROAKIE XOA ĐẦU DEERLING)
     // =========================================================================
     if (isMeeting || isExcited) {
       const other = otherPosRef.current;
+      const sameLayer = Math.abs(other.y - curPos.y) < 0.12;
       const lookDx = other.x - curPos.x;
       const lookDz = other.z - curPos.z;
-      if (Math.hypot(lookDx, lookDz) > 0.05) {
+      const dist2D = Math.hypot(lookDx, lookDz);
+
+      if (dist2D > 0.05) {
         const meetYaw = Math.atan2(lookDx, lookDz);
-        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 6.0);
+        groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 7.0);
+
+        // Nếu đang gặp nhau trên cùng tầng, căn khoảng cách chuẩn 0.60 đơn vị để tay Froakie chạm đúng đỉnh đầu Deerling
+        if (sameLayer && dist2D > 0.62) {
+          const targetDist = 0.60;
+          const moveStep = (dist2D - targetDist) * 0.5 * Math.min(1, delta * 5.0);
+          curPos.x += (lookDx / dist2D) * moveStep;
+          curPos.z += (lookDz / dist2D) * moveStep;
+          groupRef.current.position.copy(curPos);
+        }
       }
 
-      if (id === 'froakie') {
-        // Nhảy nảy vui vẻ tại chỗ và vẫy tay chào Nai
-        const pBounce = (elapsed * 2.2) % 1.0;
-        const stretch = Math.sin(pBounce * Math.PI);
-        const jumpH = Math.abs(Math.sin(elapsed * 5.5)) * 0.35;
-        modelInnerRef.current.position.y = jumpH;
-        modelInnerRef.current.rotation.x = stretch * 0.15;
-
-        applyFrogSitPose(bones, Math.sin(elapsed * 4.0));
-        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
-          if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
-        });
-        const wave = Math.sin(elapsed * 12.0) * 0.25;
-        rotateBoneLocal(bones['right_arm_01'], -0.40, 0.35, -0.25 + wave);
-        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.55 + wave);
-      } else if (id === 'deerling') {
+      if (id === 'deerling') {
         modelInnerRef.current.position.y = 0;
         modelInnerRef.current.rotation.x = 0;
         resetAllBones(bones);
 
-        rotateBoneLocal(bones['neck'], 0, -0.32 + Math.sin(elapsed * 5.0) * 0.08, 0);
-        rotateBoneLocal(bones['head'], 0, 0.15, 0);
-        rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 10.0) * 0.28);
-        rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 10.0) * 0.28);
-        rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 12.0) * 0.38);
+        // Hạ nhẹ thân trước và khuỵu nhẹ 2 chân trước để cúi đầu xuống tầm tay của Froakie
+        if (bones['waist']) {
+          bones['waist'].position.set(0, 0.232, -0.039);
+        }
+        rotateBoneLocal(bones['left_arm_01'], 0, 0.35, 0);
+        rotateBoneLocal(bones['left_arm_02'], 0, -0.65, 0);
+        rotateBoneLocal(bones['left_hand'], 0, 0.30, 0);
+        rotateBoneLocal(bones['right_arm_01'], 0, 0.35, 0);
+        rotateBoneLocal(bones['right_arm_02'], 0, -0.65, 0);
+        rotateBoneLocal(bones['right_hand'], 0, 0.30, 0);
+
+        // Cúi cổ và đầu xuống đón bàn tay xoa đầu của Froakie
+        const nod = Math.sin(elapsed * 4.5) * 0.04;
+        rotateBoneLocal(bones['spine_02'], 0, -0.30, 0);
+        rotateBoneLocal(bones['neck'], 0, -0.76 + nod, 0);
+        rotateBoneLocal(bones['head'], 0, -0.22 - nod, Math.sin(elapsed * 3.2) * 0.05);
+
+        // Khẽ rung đôi tai và vẫy nhẹ đuôi đầy thích thú
+        const earTwitch = Math.sin(elapsed * 11.0) * 0.22;
+        rotateBoneLocal(bones['left_ear'], 0, 0, earTwitch);
+        rotateBoneLocal(bones['right_ear'], 0, 0, -earTwitch);
+        rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 9.0) * 0.30);
+      } else if (id === 'froakie') {
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+
+        // Ngồi tư thế ếch (tay trái chống phẳng trên mặt đất)
+        applyFrogSitPose(bones, Math.sin(elapsed * 3.5));
+
+        // Hơi rướn nhẹ ngực lên để vươn tay xoa đầu Deerling
+        if (bones['spine']?.userData.restQuat) {
+          bones['spine'].quaternion.copy(bones['spine'].userData.restQuat);
+        }
+        rotateBoneLocal(bones['spine'], 0, -0.48, 0);
+
+        // Reset riêng cánh tay phải rồi giơ cao về phía trước đặt lên đỉnh đầu Deerling và xoa nhẹ
+        ['right_arm_01', 'right_arm_02', 'right_arm_03', 'right_hand'].forEach((n) => {
+          if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
+        });
+
+        const patStroke = Math.sin(elapsed * 6.5) * 0.14;
+        const patUpDown = Math.cos(elapsed * 6.5) * 0.08;
+
+        rotateBoneLocal(bones['right_arm_01'], 0.20, -1.32 + patStroke * 0.5, -0.48 + patUpDown);
+        rotateBoneLocal(bones['right_arm_02'], 0, -0.32 + patStroke, 0.22);
+        rotateBoneLocal(bones['right_arm_03'], 0.35, 0, 0);
+        rotateBoneLocal(bones['right_hand'], 0, -0.35 + patUpDown * 1.5, 0);
       }
       return;
     }
 
     // =========================================================================
-    // 3. MÁY TRẠNG THÁI DEERLING (CHỐNG TRƯỢT CHÂN, NHẢY CHUYỂN TẦNG, ĂN CỎ)
+    // 3. MÁY TRẠNG THÁI DEERLING (ĐỨNG NGHỈ, CUỘN MÌNH NGỦ, ĐI BỘ, NHẢY TẦNG, ĂN CỎ)
     // =========================================================================
     if (id === 'deerling') {
       const state = deerlingStateRef.current;
       deerlingStateTimerRef.current += delta;
       const timer = deerlingStateTimerRef.current;
 
-      if (state === 'WALKING') {
+      if (state === 'REST_STAND') {
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        resetAllBones(bones);
+
+        // Nhịp thở chậm rãi ở ngực, cổ, tai và đuôi khẽ đung đưa
+        const slowBreath = Math.sin(elapsed * 2.2);
+        rotateBoneLocal(bones['spine_02'], 0, slowBreath * 0.02, 0);
+        rotateBoneLocal(bones['neck'], 0, 0.05 + slowBreath * 0.03, 0);
+        rotateBoneLocal(bones['head'], 0, 0.06, Math.sin(elapsed * 1.2) * 0.12);
+        rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 2.5) * 0.08);
+        rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 2.5) * 0.08);
+        rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 2.0) * 0.12);
+
+        if (timer >= deerlingDurationRef.current) {
+          startPosRef.current.copy(curPos);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+          if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
+            deerlingStateRef.current = 'LEAP_LAYER';
+          } else {
+            deerlingStateRef.current = 'WALKING';
+          }
+          deerlingStateTimerRef.current = 0;
+        }
+      } else if (state === 'SLEEP_CURL') {
+        // Nằm xuống cuộn tròn ngủ yên bình
+        const sleepDuration = deerlingDurationRef.current;
+        const curlBlend =
+          THREE.MathUtils.smoothstep(timer, 0.0, 0.9) *
+          (1.0 - THREE.MathUtils.smoothstep(timer, sleepDuration - 0.9, sleepDuration));
+        const sleepBreath = Math.sin(elapsed * 2.0) * 0.03 * curlBlend;
+
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        resetAllBones(bones);
+
+        // 1. Hạ thấp xương chậu để bụng nằm sát mặt đất
+        if (bones['waist']) {
+          bones['waist'].position.set(
+            0,
+            THREE.MathUtils.lerp(0.257, 0.115, curlBlend),
+            -0.039,
+          );
+        }
+
+        // 2. Nghiêng nhẹ hông và uốn cong sống lưng + cổ + đầu cuộn tròn sang bên
+        rotateBoneLocal(bones['waist'], 0.12 * curlBlend, 0.05 * curlBlend, 0.15 * curlBlend);
+        rotateBoneLocal(bones['spine_01'], 0, sleepBreath, 0.25 * curlBlend);
+        rotateBoneLocal(bones['spine_02'], 0, -0.15 * curlBlend + sleepBreath, 0.48 * curlBlend);
+        rotateBoneLocal(bones['neck'], -0.75 * curlBlend, -0.38 * curlBlend, 0.25 * curlBlend);
+        rotateBoneLocal(bones['head'], -0.55 * curlBlend, (0.25 + sleepBreath) * curlBlend, 0.32 * curlBlend);
+
+        // 3. Gập gọn 2 chân trước dưới ngực
+        rotateBoneLocal(bones['left_arm_01'], 0, -0.45 * curlBlend, 0.12 * curlBlend);
+        rotateBoneLocal(bones['left_arm_02'], 0, -1.95 * curlBlend, 0);
+        rotateBoneLocal(bones['left_hand'], 0, -0.55 * curlBlend, 0);
+
+        rotateBoneLocal(bones['right_arm_01'], 0, -0.45 * curlBlend, -0.12 * curlBlend);
+        rotateBoneLocal(bones['right_arm_02'], 0, -1.95 * curlBlend, 0);
+        rotateBoneLocal(bones['right_hand'], 0, -0.55 * curlBlend, 0);
+
+        // 4. Gập gọn 2 chân sau nép dưới bụng
+        rotateBoneLocal(bones['left_leg_01'], 0, -1.25 * curlBlend, 0.20 * curlBlend);
+        rotateBoneLocal(bones['left_leg_02'], 0, 1.55 * curlBlend, 0);
+        rotateBoneLocal(bones['left_foot'], 0, -1.25 * curlBlend, 0);
+
+        rotateBoneLocal(bones['right_leg_01'], 0, -1.25 * curlBlend, -0.20 * curlBlend);
+        rotateBoneLocal(bones['right_leg_02'], 0, 1.55 * curlBlend, 0);
+        rotateBoneLocal(bones['right_foot'], 0, -1.25 * curlBlend, 0);
+
+        // Tai cụp thư giãn và đuôi cuộn gọn
+        rotateBoneLocal(bones['left_ear'], 0, 0, -0.25 * curlBlend);
+        rotateBoneLocal(bones['right_ear'], 0, 0, 0.25 * curlBlend);
+        rotateBoneLocal(bones['tail'], 0, -0.35 * curlBlend, 0.25 * curlBlend);
+
+        if (timer >= sleepDuration) {
+          startPosRef.current.copy(curPos);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+          if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
+            deerlingStateRef.current = 'LEAP_LAYER';
+          } else {
+            deerlingStateRef.current = 'WALKING';
+          }
+          deerlingStateTimerRef.current = 0;
+        }
+      } else if (state === 'WALKING') {
         const dx = targetPos.x - curPos.x;
         const dz = targetPos.z - curPos.z;
         const dist2D = Math.hypot(dx, dz);
 
         if (dist2D < 0.12) {
-          deerlingStateRef.current = Math.random() < 0.5 ? 'GRAZING' : 'LOOKING';
+          // Đến nơi: chuyển sang một trong các trạng thái nghỉ/tĩnh
+          const rand = Math.random();
+          if (rand < 0.35) {
+            deerlingStateRef.current = 'REST_STAND';
+            deerlingDurationRef.current = 4.5 + Math.random() * 2.0;
+          } else if (rand < 0.65) {
+            deerlingStateRef.current = 'SLEEP_CURL';
+            deerlingDurationRef.current = 7.0 + Math.random() * 2.5;
+          } else if (rand < 0.85) {
+            deerlingStateRef.current = 'GRAZING';
+          } else {
+            deerlingStateRef.current = 'LOOKING';
+          }
           deerlingStateTimerRef.current = 0;
           modelInnerRef.current.position.y = 0;
           resetAllBones(bones);
@@ -768,7 +930,17 @@ function CompanionEntity({
             elapsed,
           );
 
-          deerlingStateRef.current = 'GRAZING';
+          // Nhảy sang tầng mới xong: nghỉ ngơi hoặc cuộn mình nằm ngủ
+          const rand = Math.random();
+          if (rand < 0.4) {
+            deerlingStateRef.current = 'REST_STAND';
+            deerlingDurationRef.current = 4.5 + Math.random() * 2.0;
+          } else if (rand < 0.75) {
+            deerlingStateRef.current = 'SLEEP_CURL';
+            deerlingDurationRef.current = 7.0 + Math.random() * 2.5;
+          } else {
+            deerlingStateRef.current = 'GRAZING';
+          }
           deerlingStateTimerRef.current = 0;
         }
       } else if (state === 'GRAZING') {
@@ -791,13 +963,17 @@ function CompanionEntity({
         rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 3.0) * 0.18);
 
         if (timer >= duration) {
-          startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y);
-
-          if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
-            deerlingStateRef.current = 'LEAP_LAYER';
+          if (Math.random() < 0.55) {
+            deerlingStateRef.current = Math.random() < 0.5 ? 'REST_STAND' : 'SLEEP_CURL';
+            deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
-            deerlingStateRef.current = 'WALKING';
+            startPosRef.current.copy(curPos);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
+              deerlingStateRef.current = 'LEAP_LAYER';
+            } else {
+              deerlingStateRef.current = 'WALKING';
+            }
           }
           deerlingStateTimerRef.current = 0;
         }
@@ -815,13 +991,17 @@ function CompanionEntity({
         rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 6.0) * 0.35);
 
         if (timer >= 2.8) {
-          startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y);
-
-          if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
-            deerlingStateRef.current = 'LEAP_LAYER';
+          if (Math.random() < 0.55) {
+            deerlingStateRef.current = Math.random() < 0.5 ? 'REST_STAND' : 'SLEEP_CURL';
+            deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
-            deerlingStateRef.current = 'WALKING';
+            startPosRef.current.copy(curPos);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
+              deerlingStateRef.current = 'LEAP_LAYER';
+            } else {
+              deerlingStateRef.current = 'WALKING';
+            }
           }
           deerlingStateTimerRef.current = 0;
         }
@@ -829,7 +1009,7 @@ function CompanionEntity({
     }
 
     // =========================================================================
-    // 4. MÁY TRẠNG THÁI FROAKIE (TƯ THẾ NGỒI ẾCH, BẬT NHẢY, GÃI ĐẦU, VẪY TAY)
+    // 4. MÁY TRẠNG THÁI FROAKIE (NGỒI NGHỈ, BẬT NHẢY, GÃI ĐẦU, VẪY TAY)
     // =========================================================================
     if (id === 'froakie') {
       const state = froakieStateRef.current;
@@ -838,7 +1018,34 @@ function CompanionEntity({
 
       const breath = Math.sin(elapsed * 3.5);
 
-      if (state === 'HOP_MOVE') {
+      if (state === 'REST_SIT') {
+        // Ngồi nghỉ ngơi thư giãn tại chỗ
+        modelInnerRef.current.position.y = 0;
+        modelInnerRef.current.rotation.x = 0;
+        applyFrogSitPose(bones, breath);
+
+        // Khẽ nghiêng/ngoảnh đầu nhẹ nhàng nhìn ngắm vũ trụ
+        rotateBoneLocal(
+          bones['head'],
+          Math.sin(elapsed * 1.1) * 0.08,
+          0.42 - breath * 0.03,
+          Math.sin(elapsed * 0.7) * 0.06,
+        );
+
+        if (timer >= froakieDurationRef.current) {
+          const rand = Math.random();
+          if (rand < 0.35) {
+            froakieStateRef.current = 'SCRATCH_HEAD';
+          } else if (rand < 0.65) {
+            froakieStateRef.current = 'WAVE_CAMERA';
+          } else {
+            startPosRef.current.copy(curPos);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            froakieStateRef.current = 'HOP_MOVE';
+          }
+          froakieStateTimerRef.current = 0;
+        }
+      } else if (state === 'HOP_MOVE') {
         const prepTime = 0.35;
         const jumpTime = 0.95;
 
@@ -871,7 +1078,7 @@ function CompanionEntity({
           modelInnerRef.current.rotation.x = stretch * 0.25 + landingReach * 0.22;
 
           if (bones['waist']) {
-            bones['waist'].position.set(0, 0.078 + stretch * 0.05, -0.035);
+            bones['waist'].position.set(0, 0.088 + stretch * 0.05, -0.035);
           }
 
           [
@@ -880,9 +1087,11 @@ function CompanionEntity({
             'head',
             'left_arm_01',
             'left_arm_02',
+            'left_arm_03',
             'left_hand',
             'right_arm_01',
             'right_arm_02',
+            'right_arm_03',
             'right_hand',
             'left_leg_01',
             'right_leg_01',
@@ -942,16 +1151,9 @@ function CompanionEntity({
             elapsed,
           );
 
-          const rand = Math.random();
-          if (rand < 0.38) {
-            froakieStateRef.current = 'SCRATCH_HEAD';
-          } else if (rand < 0.72) {
-            froakieStateRef.current = 'WAVE_CAMERA';
-          } else {
-            startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y);
-            froakieStateRef.current = 'HOP_MOVE';
-          }
+          // Sau cú nhảy: quay về nghỉ ngơi thay vì nhảy tiếp
+          froakieStateRef.current = 'REST_SIT';
+          froakieDurationRef.current = 4.5 + Math.random() * 2.5;
           froakieStateTimerRef.current = 0;
         }
       } else if (state === 'SCRATCH_HEAD') {
@@ -960,7 +1162,7 @@ function CompanionEntity({
         modelInnerRef.current.rotation.x = 0;
         applyFrogSitPose(bones, breath);
 
-        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
+        ['right_arm_01', 'right_arm_02', 'right_arm_03', 'right_hand'].forEach((n) => {
           if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
         });
         const scratch = Math.sin(elapsed * 14.0) * 0.15;
@@ -969,9 +1171,8 @@ function CompanionEntity({
         rotateBoneLocal(bones['head'], -0.10, 0, 0);
 
         if (timer >= 2.8) {
-          startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y);
-          froakieStateRef.current = 'HOP_MOVE';
+          froakieStateRef.current = 'REST_SIT';
+          froakieDurationRef.current = 4.5 + Math.random() * 2.5;
           froakieStateTimerRef.current = 0;
         }
       } else if (state === 'WAVE_CAMERA') {
@@ -986,7 +1187,7 @@ function CompanionEntity({
         const camYaw = Math.atan2(camDx, camDz);
         groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, camYaw, delta * 5.0);
 
-        ['right_arm_01', 'right_arm_02', 'right_hand'].forEach((n) => {
+        ['right_arm_01', 'right_arm_02', 'right_arm_03', 'right_hand'].forEach((n) => {
           if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
         });
         const wave = Math.sin(elapsed * 10.0) * 0.22;
@@ -995,9 +1196,8 @@ function CompanionEntity({
         rotateBoneLocal(bones['head'], 0.12, 0, 0);
 
         if (timer >= 3.2) {
-          startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y);
-          froakieStateRef.current = 'HOP_MOVE';
+          froakieStateRef.current = 'REST_SIT';
+          froakieDurationRef.current = 4.5 + Math.random() * 2.5;
           froakieStateTimerRef.current = 0;
         }
       }
@@ -1042,7 +1242,7 @@ export function CompanionPair(): JSX.Element {
   const lastMeetingTimeRef = useRef<number>(-999);
   const meetingEndTimeRef = useRef<number>(0);
 
-  // Kiểm tra gặp gỡ tình cờ giữa Froakie & Deerling
+  // Kiểm tra gặp gỡ tình cờ giữa Froakie & Deerling: BẮT BUỘC Ở CÙNG MỘT TẦNG ĐỘ CAO
   useFrame((state) => {
     const elapsed = state.clock.getElapsedTime();
 
@@ -1051,11 +1251,15 @@ export function CompanionPair(): JSX.Element {
         setIsMeeting(false);
       }
     } else {
-      const dist = froakiePosRef.current.distanceTo(deerlingPosRef.current);
-      // Gặp nhau khi khoảng cách < 1.8 và đã qua thời gian hồi 14 giây
-      if (dist < 1.8 && elapsed - lastMeetingTimeRef.current > 14.0) {
+      const dy = Math.abs(froakiePosRef.current.y - deerlingPosRef.current.y);
+      const dx = froakiePosRef.current.x - deerlingPosRef.current.x;
+      const dz = froakiePosRef.current.z - deerlingPosRef.current.z;
+      const dist2D = Math.hypot(dx, dz);
+
+      // BẮT BUỘC cùng một tầng (dy < 0.08) và khoảng cách ngang < 1.35
+      if (dy < 0.08 && dist2D < 1.35 && elapsed - lastMeetingTimeRef.current > 16.0) {
         lastMeetingTimeRef.current = elapsed;
-        meetingEndTimeRef.current = elapsed + 3.8;
+        meetingEndTimeRef.current = elapsed + 4.2;
         setIsMeeting(true);
 
         // Phát gợn sóng giao thoa đôi dưới chân cả 2 bé
