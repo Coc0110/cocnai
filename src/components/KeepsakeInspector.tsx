@@ -4,6 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { KeepsakeManifestItem } from '../types/universe';
 import { useUniverseStore } from '../store/useUniverseStore';
+import { prepareKeepsakeScene } from '../utils/prepareKeepsakeScene';
 
 interface KeepsakeInspectorProps {
   items: KeepsakeManifestItem[];
@@ -11,7 +12,10 @@ interface KeepsakeInspectorProps {
 
 function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   const gltf = useGLTF(item.url);
-  const clonedScene = useMemo(() => gltf.scene.clone(), [gltf.scene]);
+  const preparedScene = useMemo(
+    () => prepareKeepsakeScene(gltf.scene, item),
+    [gltf.scene, item],
+  );
   const groupRef = useRef<THREE.Group>(null);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -71,7 +75,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         onPointerUp={handlePointerUp}
         onWheel={handleWheel}
       >
-        <primitive object={clonedScene} />
+        <primitive object={preparedScene} />
       </group>
     </group>
   );

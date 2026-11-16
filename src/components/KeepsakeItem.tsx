@@ -9,6 +9,7 @@ import {
   computeFlickImpulse,
   computeGravityWellImpulse,
 } from '../utils/physicsMath';
+import { prepareKeepsakeScene } from '../utils/prepareKeepsakeScene';
 
 interface KeepsakeItemProps {
   item: KeepsakeManifestItem;
@@ -16,7 +17,10 @@ interface KeepsakeItemProps {
 
 export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   const gltf = useGLTF(item.url);
-  const clonedScene = useMemo(() => gltf.scene.clone(), [gltf.scene]);
+  const preparedScene = useMemo(
+    () => prepareKeepsakeScene(gltf.scene, item),
+    [gltf.scene, item],
+  );
   const rigidBodyRef = useRef<RapierRigidBody>(null);
   const visualGroupRef = useRef<THREE.Group>(null);
 
@@ -145,7 +149,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   return (
     <RigidBody
       ref={rigidBodyRef}
-      colliders="hull"
+      colliders="ball"
       gravityScale={0}
       linearDamping={0.9}
       angularDamping={2.4}
@@ -159,7 +163,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
         onClick={handleClick}
       >
         <group ref={visualGroupRef}>
-          <primitive object={clonedScene} />
+          <primitive object={preparedScene} />
         </group>
       </group>
     </RigidBody>
