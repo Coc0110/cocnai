@@ -195,9 +195,12 @@ export function prepareKeepsakeScene(
         return;
       }
 
-      // Dịch chuyển nút bần (Cork_3) khớp chính xác với miệng lọ mới (+1.895)
+      // Dịch chuyển và thu nhỏ nút bần (Cork_3) khớp chính xác với miệng lọ mới
       if (/cork_3/i.test(name)) {
-        child.position.y += totalDeltaY;
+        child.scale.x *= 0.65;
+        child.scale.z *= 0.65;
+        child.scale.y *= 0.85;
+        child.position.y += totalDeltaY - 0.18;
         child.updateMatrix();
       }
 
@@ -216,6 +219,9 @@ export function prepareKeepsakeScene(
           const pos = geo.attributes.position as THREE.BufferAttribute;
           for (let i = 0; i < pos.count; i++) {
             const y = pos.getY(i);
+            const x = pos.getX(i);
+            const z = pos.getZ(i);
+
             if (y > yCylBot && y <= yCylTop) {
               // Kéo dài phần hình trụ gấp đôi (2x)
               pos.setY(i, yCylBot + (y - yCylBot) * 2.0);
@@ -225,6 +231,21 @@ export function prepareKeepsakeScene(
             } else if (y > yNeckTop) {
               // Vành miệng lọ dịch lên tương ứng
               pos.setY(i, y + totalDeltaY);
+            }
+
+            // Thu nhỏ đường kính ngang (X, Z) của vai lọ, cổ lọ và miệng lọ
+            if (y > yCylTop) {
+              let radialScale = 1.0;
+              if (y <= 5.35) {
+                const t = (y - yCylTop) / (5.35 - yCylTop);
+                radialScale = 1.0 - t * t * (3 - 2 * t) * (1.0 - 0.64);
+              } else if (y <= yNeckTop) {
+                radialScale = 0.64;
+              } else {
+                radialScale = 0.66;
+              }
+              pos.setX(i, x * radialScale);
+              pos.setZ(i, z * radialScale);
             }
           }
           pos.needsUpdate = true;
@@ -310,6 +331,30 @@ export function prepareKeepsakeScene(
     // Áp dụng độ rủ ban đầu trước khi đo BoundingBox
     animateSuppleBracelet(wrapper, 0);
     cloned.rotation.set(0.55, 0, 0);
+  }
+
+  // 3. BỨC THƯ TÌNH YÊU: Giữ texture gốc, nâng cấp material sắc nét trong không gian tối
+  if (item.id === 'love-letter') {
+    cloned.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const oldMat = mesh.material as THREE.MeshStandardMaterial;
+        if (oldMat?.map) {
+          oldMat.map.colorSpace = THREE.SRGBColorSpace;
+          oldMat.map.needsUpdate = true;
+        }
+        mesh.material = new THREE.MeshStandardMaterial({
+          map: oldMat?.map || null,
+          color: new THREE.Color('#ffffff'),
+          roughness: 0.42,
+          metalness: 0.05,
+          emissiveMap: oldMat?.map || null,
+          emissive: new THREE.Color('#ffffff'),
+          emissiveIntensity: 0.22,
+          side: THREE.DoubleSide,
+        });
+      }
+    });
   }
 
   // 3. Căn tâm (0, 0, 0) và chuẩn hóa kích thước

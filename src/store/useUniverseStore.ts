@@ -4,9 +4,11 @@ import { CompanionId } from '../types/universe';
 export interface UniverseState {
   selectedKeepsakeId: string | null;
   selectedKeepsakeOrigin: [number, number, number] | null;
+  draggingKeepsakeId: string | null;
   excitedCompanion: CompanionId | null;
   selectKeepsake: (id: string | null, origin?: [number, number, number]) => void;
   clearSelection: () => void;
+  setDraggingKeepsakeId: (id: string | null) => void;
   triggerCompanion: (id: CompanionId) => void;
 }
 
@@ -15,6 +17,7 @@ let excitementTimer: ReturnType<typeof setTimeout> | null = null;
 export const useUniverseStore = create<UniverseState>((set) => ({
   selectedKeepsakeId: null,
   selectedKeepsakeOrigin: null,
+  draggingKeepsakeId: null,
   excitedCompanion: null,
 
   selectKeepsake: (id: string | null, origin?: [number, number, number]) => {
@@ -28,8 +31,13 @@ export const useUniverseStore = create<UniverseState>((set) => ({
     set({
       selectedKeepsakeId: null,
       selectedKeepsakeOrigin: null,
+      draggingKeepsakeId: null,
       excitedCompanion: null,
     });
+  },
+
+  setDraggingKeepsakeId: (id: string | null) => {
+    set({ draggingKeepsakeId: id });
   },
 
   triggerCompanion: (id: CompanionId) => {

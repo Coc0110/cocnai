@@ -31,7 +31,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   );
 
   const [isDragging, setIsDragging] = useState(false);
-  const [zoomScale, setZoomScale] = useState(1.4);
+  const [zoomScale, setZoomScale] = useState(1.0);
   const lastPointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const userRotRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -42,11 +42,48 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       currentWorldPosRef.current.set(...item.initialPosition);
     }
     userRotRef.current = { x: 0, y: 0 };
-    setZoomScale(1.4);
+    setZoomScale(1.0);
   }, [item.id, item.initialPosition, selectedKeepsakeOrigin]);
+
+  // Hỗ trợ chụm/tách 2 ngón tay (pinch-to-zoom) mượt mà trên điện thoại
+  useEffect(() => {
+    let initialDist = 0;
+    let initialZoom = 1.0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        initialDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        initialZoom = zoomScale;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && initialDist > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const factor = dist / initialDist;
+        setZoomScale(Math.min(1.65, Math.max(0.55, initialZoom * factor)));
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: false });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [zoomScale]);
 
   useFrame((state, delta) => {
     if (!rootGroupRef.current || !modelGroupRef.current) return;
+
+    const inspectDist = 2.65;
 
     // 1. Bay mượt về ngay phía trước Camera
     const camDir = new THREE.Vector3();
@@ -54,13 +91,13 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(state.camera.quaternion);
     const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(state.camera.quaternion);
 
-    // Điểm đích cách mặt camera 2.35 đơn vị
-    const targetCenter = state.camera.position.clone().addScaledVector(camDir, 2.35);
+    // Điểm đích cách mặt camera 2.65 đơn vị
+    const targetCenter = state.camera.position.clone().addScaledVector(camDir, inspectDist);
     currentWorldPosRef.current.lerp(targetCenter, Math.min(1, delta * 6.5));
 
-    // Đặt tấm nền mờ luôn nằm phía sau vật phẩm (3.6 đơn vị) và hướng thẳng camera
+    // Đặt tấm nền mờ luôn nằm phía sau vật phẩm (3.85 đơn vị) và hướng thẳng camera
     if (backdropRef.current) {
-      backdropRef.current.position.copy(state.camera.position).addScaledVector(camDir, 3.6);
+      backdropRef.current.position.copy(state.camera.position).addScaledVector(camDir, inspectDist + 1.2);
       backdropRef.current.quaternion.copy(state.camera.quaternion);
     }
 
@@ -80,6 +117,20 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     modelGroupRef.current.rotation.x = userRotRef.current.x + Math.sin(elapsed * 1.35) * 0.055;
     modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
     modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
+
+    // 3. Tự động co giãn theo khung hình thực tế để KHÔNG BAO GIỜ tràn màn hình
+    const persp = state.camera as THREE.PerspectiveCamera;
+    const fovRad = THREE.MathUtils.degToRad(persp.fov || 50);
+    const visibleHeight = 2 * inspectDist * Math.tan(fovRad / 2);
+    const aspect = state.size.width / Math.max(1, state.size.height);
+    const visibleWidth = visibleHeight * aspect;
+    const minVisibleDim = Math.min(visibleWidth, visibleHeight);
+
+    const baseTargetSize = (item.radius || 0.65) * (item.id === 'glass-bottle' ? 2.5 : 2.1);
+    // Vật phẩm chỉ chiếm tối đa 56% chiều hẹp nhất của màn hình
+    const fitScale = (minVisibleDim * 0.56) / baseTargetSize;
+    const finalScale = fitScale * zoomScale;
+    modelGroupRef.current.scale.setScalar(finalScale);
 
     // Đung đưa mềm mại sợi dây vòng tay
     if (item.id === 'clover-bracelet') {
@@ -121,7 +172,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
   const handleWheel = (e: ThreeEvent<WheelEvent>) => {
     e.stopPropagation();
-    setZoomScale((prev) => Math.min(2.4, Math.max(0.6, prev - e.deltaY * 0.0015)));
+    setZoomScale((prev) => Math.min(1.65, Math.max(0.55, prev - e.deltaY * 0.0015)));
   };
 
   return (
@@ -151,7 +202,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
         <group
           ref={modelGroupRef}
-          scale={[zoomScale, zoomScale, zoomScale]}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

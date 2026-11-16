@@ -18,7 +18,10 @@ const keepsakes = rawKeepsakes as KeepsakeManifestItem[];
 
 export default function App(): JSX.Element {
   const selectedKeepsakeId = useUniverseStore((s) => s.selectedKeepsakeId);
+  const draggingKeepsakeId = useUniverseStore((s) => s.draggingKeepsakeId);
   const controlsRef = useRef<OrbitControlsLike>(null);
+
+  const isControlsEnabled = selectedKeepsakeId === null && draggingKeepsakeId === null;
 
   return (
     <div
@@ -55,19 +58,19 @@ export default function App(): JSX.Element {
 
           <TwoFingerCameraController
             controlsRef={controlsRef}
-            enabled={selectedKeepsakeId === null}
+            enabled={isControlsEnabled}
           />
 
           <OrbitControls
             ref={controlsRef as any}
             makeDefault
-            enabled={selectedKeepsakeId === null}
+            enabled={isControlsEnabled}
             enableZoom={false}
             enablePan={false}
             enableDamping
             dampingFactor={0.07}
-            minDistance={4}
-            maxDistance={16}
+            minDistance={0.5}
+            maxDistance={60}
             rotateSpeed={0.85}
             zoomSpeed={0.8}
           />

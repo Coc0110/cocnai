@@ -1,32 +1,20 @@
 [
   {
-    "id": "crystal-heart",
-    "url": "/models/keepsakes/crystal-heart.glb",
-    "radius": 0.55,
-    "initialPosition": [2.087, 0.2, 1.867]
-  },
-  {
-    "id": "memory-capsule",
-    "url": "/models/keepsakes/memory-capsule.glb",
-    "radius": 0.55,
-    "initialPosition": [-2.433, -1.8, 0.4]
-  },
-  {
-    "id": "origami-crane",
-    "url": "/models/keepsakes/origami-crane.glb",
-    "radius": 0.55,
-    "initialPosition": [0.182, 2.079, -1.867]
-  },
-  {
     "id": "clover-bracelet",
     "url": "/models/keepsakes/clover-bracelet.glb",
     "radius": 0.65,
-    "initialPosition": [-1.65, 1.35, 1.45]
+    "initialPosition": [-1.15, 0.85, 0.4]
   },
   {
     "id": "glass-bottle",
     "url": "/models/keepsakes/glass-bottle.glb",
     "radius": 0.65,
-    "initialPosition": [1.75, -1.35, -1.25]
+    "initialPosition": [1.15, 0.75, -0.3]
+  },
+  {
+    "id": "love-letter",
+    "url": "/models/keepsakes/love-letter.glb",
+    "radius": 0.65,
+    "initialPosition": [0.0, 0.15, 0.8]
   }
 ]

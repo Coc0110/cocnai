@@ -18,6 +18,11 @@ describe('useUniverseStore', () => {
     useUniverseStore.getState().clearSelection();
     expect(useUniverseStore.getState().selectedKeepsakeId).toBeNull();
     expect(useUniverseStore.getState().selectedKeepsakeOrigin).toBeNull();
+    expect(useUniverseStore.getState().draggingKeepsakeId).toBeNull();
+    useUniverseStore.getState().setDraggingKeepsakeId('keepsake-1');
+    expect(useUniverseStore.getState().draggingKeepsakeId).toBe('keepsake-1');
+    useUniverseStore.getState().setDraggingKeepsakeId(null);
+    expect(useUniverseStore.getState().draggingKeepsakeId).toBeNull();
   });
 
   it('sets excitedCompanion when triggered', () => {

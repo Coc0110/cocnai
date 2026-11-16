@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
-import { useFrame, ThreeEvent } from '@react-three/fiber';
+import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import * as THREE from 'three';
 import { useUniverseStore } from '../store/useUniverseStore';
@@ -11,12 +11,16 @@ const tempEuler = new THREE.Euler();
 const tempQuat = new THREE.Quaternion();
 
 // Các tầng độ cao không gian 3D của Vũ trụ Ký ức
-const Y_TIERS = [-2.0, -1.0, 0.0, 1.0, 2.0];
+const Y_TIERS = [-1.75, -0.65, 0.45, 1.45];
 
 /**
  * Chọn điểm đến ngẫu nhiên nhưng ưu tiên giữ nguyên tầng hoặc cùng tầng với bạn đồng hành
  */
-function getRandomWaypoint(currentTierY?: number, partnerTierY?: number): THREE.Vector3 {
+function getRandomWaypoint(
+  currentTierY?: number,
+  partnerTierY?: number,
+  maxX: number = 3.7,
+): THREE.Vector3 {
   let y: number;
   if (partnerTierY !== undefined && Math.random() < 0.65) {
     y = partnerTierY;
@@ -31,7 +35,7 @@ function getRandomWaypoint(currentTierY?: number, partnerTierY?: number): THREE.
   const dist = 1.6 + Math.random() * 2.2;
   let x = Math.cos(angle) * dist;
   let z = Math.sin(angle) * dist;
-  x = THREE.MathUtils.clamp(x, -3.7, 3.7);
+  x = THREE.MathUtils.clamp(x, -maxX, maxX);
   z = THREE.MathUtils.clamp(z, -2.9, 2.5);
   return new THREE.Vector3(x, y, z);
 }
@@ -402,6 +406,9 @@ function CompanionEntity({
   rippleManager,
   isMeeting,
 }: CompanionEntityProps) {
+  const { viewport } = useThree();
+  const maxX = Math.max(1.3, viewport.width * 0.36);
+
   const [modelScene, setModelScene] = useState<THREE.Object3D | null>(null);
   const [eyeTextures, setEyeTextures] = useState<EyeTextureSet | null>(null);
 
@@ -422,6 +429,14 @@ function CompanionEntity({
   const currentPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPos));
   const startPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPos));
   const targetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPos));
+
+  // Đặt góc quay ban đầu hướng chếch về phía người xem ở 2 góc dưới màn hình
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.position.set(...initialPos);
+      groupRef.current.rotation.y = id === 'froakie' ? 0.45 : -0.45;
+    }
+  }, [id, initialPos]);
 
   // Trạng thái cho Deerling (Mặc định bắt đầu bằng đứng nghỉ ngơi yên bình)
   const deerlingStateRef = useRef<DeerlingState>('REST_STAND');
@@ -549,7 +564,7 @@ function CompanionEntity({
       setEyeTextures(eyeTexSet);
       setModelScene(scene);
 
-      targetPosRef.current = getRandomWaypoint(initialPos[1]);
+      targetPosRef.current = getRandomWaypoint(initialPos[1], undefined, maxX);
     });
 
     return () => {
@@ -710,7 +725,7 @@ function CompanionEntity({
 
         if (timer >= deerlingDurationRef.current) {
           startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
           if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
             deerlingStateRef.current = 'LEAP_LAYER';
           } else {
@@ -771,7 +786,7 @@ function CompanionEntity({
 
         if (timer >= sleepDuration) {
           startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
           if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
             deerlingStateRef.current = 'LEAP_LAYER';
           } else {
@@ -969,7 +984,7 @@ function CompanionEntity({
             deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
             if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
               deerlingStateRef.current = 'LEAP_LAYER';
             } else {
@@ -997,7 +1012,7 @@ function CompanionEntity({
             deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
             if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
               deerlingStateRef.current = 'LEAP_LAYER';
             } else {
@@ -1041,7 +1056,7 @@ function CompanionEntity({
             froakieStateRef.current = 'WAVE_CAMERA';
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
             froakieStateRef.current = 'HOP_MOVE';
           }
           froakieStateTimerRef.current = 0;
@@ -1236,8 +1251,21 @@ function CompanionEntity({
 // COMPONENT ĐIỀU PHỐI CHÍNH (COMPANION PAIR)
 // =============================================================================
 export function CompanionPair(): JSX.Element {
-  const froakiePosRef = useRef<THREE.Vector3>(new THREE.Vector3(-2.2, 0.0, 1.2));
-  const deerlingPosRef = useRef<THREE.Vector3>(new THREE.Vector3(2.2, 0.0, -1.0));
+  const { viewport } = useThree();
+  const cornerX = Math.min(2.2, Math.max(0.95, viewport.width * 0.33));
+  const bottomY = -1.75;
+
+  const froakieInitialPos = useMemo<[number, number, number]>(
+    () => [-cornerX, bottomY, 0.4],
+    [cornerX],
+  );
+  const deerlingInitialPos = useMemo<[number, number, number]>(
+    () => [cornerX, bottomY, 0.4],
+    [cornerX],
+  );
+
+  const froakiePosRef = useRef<THREE.Vector3>(new THREE.Vector3(...froakieInitialPos));
+  const deerlingPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...deerlingInitialPos));
 
   const rippleManager = useMemo(() => new RippleManager(), []);
   const [isMeeting, setIsMeeting] = useState(false);
@@ -1303,7 +1331,7 @@ export function CompanionPair(): JSX.Element {
       <CompanionEntity
         id="froakie"
         daeUrl="/models/companions/froakie/pm0723_00_00.dae"
-        initialPos={[-2.2, 0.0, 1.2]}
+        initialPos={froakieInitialPos}
         targetHeight={1.05}
         myPosRef={froakiePosRef}
         otherPosRef={deerlingPosRef}
@@ -1315,7 +1343,7 @@ export function CompanionPair(): JSX.Element {
       <CompanionEntity
         id="deerling"
         daeUrl="/models/companions/deerling/pm0585_11_00.dae"
-        initialPos={[2.2, 0.0, -1.0]}
+        initialPos={deerlingInitialPos}
         targetHeight={1.2}
         myPosRef={deerlingPosRef}
         otherPosRef={froakiePosRef}
