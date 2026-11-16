@@ -121,7 +121,7 @@ function createCrystalGlassMaterial(): THREE.ShaderMaterial {
   });
 }
 
-// Hàm cập nhật độ rủ và chuyển động mềm mại như dây xích lỏng lẻo cho chiếc vòng tay
+// Hàm cập nhật độ rủ và chuyển động mềm mại liên tục khắp không gian cho chiếc vòng tay
 export function animateSuppleBracelet(root: THREE.Object3D, elapsed: number): void {
   const mesh = root.userData.braceletMesh as THREE.Mesh | undefined;
   if (!mesh) return;
@@ -140,26 +140,23 @@ export function animateSuppleBracelet(root: THREE.Object3D, elapsed: number): vo
     const ry = rest[idx + 1];
     const rz = rest[idx + 2];
 
-    // Mặt cỏ 4 lá hồng ở giữa (rz > 0.26, |rx| < 0.14) giữ nguyên độ cứng của đá quý (flex = 0)
-    // Hai dây xích bên cạnh và dây khóa phía sau (rz < 0.26) có độ mềm lỏng lẻo (flex -> 1.0)
-    const distFromFrontCharm = Math.max(0, 0.30 - rz) + Math.max(0, Math.abs(rx) - 0.13) * 0.8;
-    const flex = Math.min(1.0, Math.pow(distFromFrontCharm / 0.42, 1.35));
+    // Cụm cỏ 4 lá và kim cương phía trước (rz > 0.25) giữ cứng form trang sức (flex = 0),
+    // phần dây xích hai bên và khóa phía sau (rz <= 0.25) mềm mại lỏng lẻo (flex -> 1.0)
+    const tChain = Math.max(0, Math.min(1, (0.26 - rz) / 0.55));
+    const flex = tChain * tChain * (3 - 2 * tChain); // smoothstep
 
-    // 1. Độ võng tự nhiên của sợi dây xích (catenary drape) khi treo lơ lửng
-    const sideSag = -flex * 0.16 * (1.0 - Math.min(1, rz * rz * 2.5));
-    // Phần dây xích nối dài và thẻ bạc ở phía sau (rz < -0.22) rủ mềm xuống dưới
-    const tailDrop = rz < -0.20 ? -Math.pow(-rz - 0.20, 1.45) * 0.55 * flex : 0;
+    // 1. Độ võng tự nhiên (catenary drape) của sợi dây bạc lỏng lẻo
+    const sideSag = -flex * 0.14 * (1.0 - Math.min(1, rz * rz * 2.2));
+    const tailDrop = rz < -0.22 ? -Math.pow(-rz - 0.22, 1.35) * 0.35 * flex : 0;
 
-    // 2. Sóng uốn lượn mềm mại theo thời gian dọc theo từng mắt xích
-    const angle = Math.atan2(rx, rz);
+    // 2. Chuyển động đung đưa mềm mại liên tục khắp không gian (không có điểm gãy)
     const waveY =
-      Math.sin(elapsed * 2.2 + angle * 2.0) * 0.038 * flex +
-      Math.cos(elapsed * 1.6 - rz * 6.0) * 0.025 * flex;
-    const waveX = Math.sin(elapsed * 1.9 + rz * 5.0) * 0.024 * flex;
-    const waveZ = Math.cos(elapsed * 1.5 + angle * 2.0) * 0.018 * flex;
+      Math.sin(elapsed * 2.0 + rz * 5.5 + rx * 3.5) * 0.032 * flex +
+      Math.cos(elapsed * 1.4 - rx * 5.0) * 0.02 * flex;
+    const waveX = Math.sin(elapsed * 1.7 + rz * 4.5) * 0.018 * flex;
+    const waveZ = Math.cos(elapsed * 1.5 + rx * 4.5) * 0.014 * flex;
 
-    // Co nhẹ hai bên dây xích vào trong khi dây võng xuống để bảo toàn chiều dài dây
-    const inwardPinch = 1.0 - flex * 0.08;
+    const inwardPinch = 1.0 - flex * 0.06;
 
     arr[idx] = rx * inwardPinch + waveX;
     arr[idx + 1] = ry + sideSag + tailDrop + waveY;
@@ -176,16 +173,19 @@ export function prepareKeepsakeScene(
   const cloned = sourceScene.clone(true);
   const wrapper = new THREE.Group();
 
-  // 1. CHIẾC LỌ THỦY TINH: Bỏ nước + bỏ lớp kính đục bên trong + KÉO DÀI PHẦN HÌNH TRỤ GẤP ĐÔI
+  // 1. CHIẾC LỌ THỦY TINH: Bỏ nước + bỏ lớp kính đục bên trong + KÉO DÀI THÂN TRỤ (2x) & THU NGẮN CỔ LỌ (0.5x)
   if (item.id === 'glass-bottle') {
     const toRemove: THREE.Object3D[] = [];
-    const yBot = 0.63;
-    const yTop = 5.32;
-    const cylLen = yTop - yBot; // 4.69 (nhân đôi đoạn hình trụ tức là cộng thêm +4.69)
+    const yCylBot = 0.63;
+    const yCylTop = 3.60; // Đỉnh phần thân hình trụ
+    const yNeckTop = 5.75; // Chân vành miệng lọ
+
+    const newCylTop = yCylBot + (yCylTop - yCylBot) * 2.0; // 0.63 + 2.97 * 2 = 6.57
+    const newNeckTop = newCylTop + (yNeckTop - yCylTop) * 0.5; // 6.57 + 2.15 * 0.5 = 7.645
+    const totalDeltaY = newNeckTop - yNeckTop; // +1.895
 
     cloned.traverse((child) => {
       const name = child.name.toLowerCase();
-      // Xóa phần nước, các khối bọt Cube, và lớp Interior_5 gây đục
       if (
         /liquid|cube|interior|object_8|object_10|object_12|object_14|object_16|object_18|object_20|object_22|object_24|object_26/i.test(
           name,
@@ -195,9 +195,9 @@ export function prepareKeepsakeScene(
         return;
       }
 
-      // Đẩy nút bần (Cork_3) lên đúng bằng độ giãn dài của thân hình trụ (+cylLen)
+      // Dịch chuyển nút bần (Cork_3) khớp chính xác với miệng lọ mới (+1.895)
       if (/cork_3/i.test(name)) {
-        child.position.y += cylLen;
+        child.position.y += totalDeltaY;
         child.updateMatrix();
       }
 
@@ -212,15 +212,19 @@ export function prepareKeepsakeScene(
         }
 
         if (/glass/i.test(matName)) {
-          // Kéo dài phần thân hình trụ (y từ 0.63 đến 5.32) ra GẤP ĐÔI (2x) trên geometry riêng
           const geo = mesh.geometry.clone();
           const pos = geo.attributes.position as THREE.BufferAttribute;
           for (let i = 0; i < pos.count; i++) {
             const y = pos.getY(i);
-            if (y > yBot && y < yTop) {
-              pos.setY(i, yBot + (y - yBot) * 2.0);
-            } else if (y >= yTop) {
-              pos.setY(i, y + cylLen);
+            if (y > yCylBot && y <= yCylTop) {
+              // Kéo dài phần hình trụ gấp đôi (2x)
+              pos.setY(i, yCylBot + (y - yCylBot) * 2.0);
+            } else if (y > yCylTop && y <= yNeckTop) {
+              // Thu ngắn phần từ hình trụ lên miệng lọ một nửa (0.5x)
+              pos.setY(i, newCylTop + (y - yCylTop) * 0.5);
+            } else if (y > yNeckTop) {
+              // Vành miệng lọ dịch lên tương ứng
+              pos.setY(i, y + totalDeltaY);
             }
           }
           pos.needsUpdate = true;
@@ -245,17 +249,42 @@ export function prepareKeepsakeScene(
     });
   }
 
-  // 2. CHIẾC VÒNG TAY CỎ 4 LÁ: Dây mềm lỏng lẻo + màu Bạc Bạch Kim & Hồng Phấn
+  // 2. CHIẾC VÒNG TAY CỎ 4 LÁ: Tách InterleavedBuffer thành BufferAttribute độc lập + Dây mềm mại lỏng lẻo
   if (item.id === 'clover-bracelet') {
     cloned.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
-        const geo = mesh.geometry.clone();
-        const posAttr = geo.attributes.position as THREE.BufferAttribute;
-        geo.userData.restPositions = new Float32Array(posAttr.array as Float32Array);
-        if (!geo.attributes.normal) {
-          geo.computeVertexNormals();
+        const srcGeo = mesh.geometry;
+        const srcPos = srcGeo.attributes.position;
+        const srcUv = srcGeo.attributes.uv;
+        const count = srcPos.count;
+
+        // Tách rời InterleavedBuffer (stride = 5) thành BufferAttribute chuẩn (stride = 3 cho position, stride = 2 cho uv)
+        const cleanPos = new Float32Array(count * 3);
+        const cleanUv = new Float32Array(count * 2);
+
+        for (let i = 0; i < count; i++) {
+          cleanPos[i * 3] = srcPos.getX(i);
+          cleanPos[i * 3 + 1] = srcPos.getY(i);
+          cleanPos[i * 3 + 2] = srcPos.getZ(i);
+          if (srcUv) {
+            cleanUv[i * 2] = srcUv.getX(i);
+            cleanUv[i * 2 + 1] = srcUv.getY(i);
+          }
         }
+
+        const geo = new THREE.BufferGeometry();
+        if (srcGeo.index) {
+          geo.setIndex(srcGeo.index.clone());
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(cleanPos, 3));
+        if (srcUv) {
+          geo.setAttribute('uv', new THREE.BufferAttribute(cleanUv, 2));
+        }
+
+        geo.userData.restPositions = new Float32Array(cleanPos);
+        geo.computeVertexNormals();
+
         mesh.geometry = geo;
         wrapper.userData.braceletMesh = mesh;
 
@@ -265,14 +294,14 @@ export function prepareKeepsakeScene(
         mesh.material = new THREE.MeshPhysicalMaterial({
           map: remappedMap,
           color: new THREE.Color('#ffffff'),
-          metalness: 0.38,
-          roughness: 0.18,
+          metalness: 0.35,
+          roughness: 0.2,
           clearcoat: 1.0,
           clearcoatRoughness: 0.1,
           reflectivity: 1.0,
           emissiveMap: remappedMap,
           emissive: new THREE.Color('#ffffff'),
-          emissiveIntensity: 0.3,
+          emissiveIntensity: 0.32,
           side: THREE.DoubleSide,
         });
       }
