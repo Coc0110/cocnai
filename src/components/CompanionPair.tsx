@@ -442,7 +442,6 @@ function CompanionEntity({
   const deerlingStateRef = useRef<DeerlingState>('REST_STAND');
   const deerlingStateTimerRef = useRef<number>(0);
   const deerlingDurationRef = useRef<number>(5.5);
-  const walkPhaseRef = useRef<number>(0);
   const prevWalkSinRef = useRef<number>(0);
 
   // Trạng thái cho Froakie (Mặc định bắt đầu bằng ngồi nghỉ ngơi thư giãn)
@@ -799,7 +798,10 @@ function CompanionEntity({
         const dz = targetPos.z - curPos.z;
         const dist2D = Math.hypot(dx, dz);
 
-        if (dist2D < 0.12) {
+        const cycleDuration = 1.35;
+        const tCycle = (timer % cycleDuration) / cycleDuration;
+
+        if (dist2D < 0.14 || (dist2D < 0.35 && tCycle > 0.92)) {
           // Đến nơi: chuyển sang một trong các trạng thái nghỉ/tĩnh
           const rand = Math.random();
           if (rand < 0.35) {
@@ -815,83 +817,126 @@ function CompanionEntity({
           }
           deerlingStateTimerRef.current = 0;
           modelInnerRef.current.position.y = 0;
+          modelInnerRef.current.rotation.x = 0;
+          if (bones['waist']) {
+            bones['waist'].position.set(0, 0.257, -0.039);
+          }
           resetAllBones(bones);
         } else {
           const targetYaw = Math.atan2(dx, dz);
-          groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, targetYaw, delta * 4.5);
+          groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, targetYaw, delta * 5.0);
           groupRef.current.rotation.x = 0;
           groupRef.current.rotation.z = 0;
 
-          // Tốc độ đi bộ thong thả chuẩn 0.42 đv/s
-          const walkSpeed = 0.42;
-          const stepDist = Math.min(dist2D, delta * walkSpeed);
-          curPos.x += (dx / dist2D) * stepDist;
-          curPos.z += (dz / dist2D) * stepDist;
           curPos.y = THREE.MathUtils.lerp(curPos.y, targetPos.y, delta * 3.0);
-          groupRef.current.position.copy(curPos);
 
-          // Đồng bộ pha bước chân theo đúng sải chân: stepDist * 5.7
-          walkPhaseRef.current += stepDist * 5.7;
-          const phase = walkPhaseRef.current;
+          if (tCycle < 0.24) {
+            // Pha 1: Nhún lấy đà tại chỗ (0.0 <= tCycle < 0.24)
+            const dip = Math.sin((tCycle / 0.24) * Math.PI * 0.85);
+            modelInnerRef.current.position.y = 0;
+            modelInnerRef.current.rotation.x = 0;
+            if (bones['waist']) {
+              bones['waist'].position.set(0, 0.257 - 0.027 * dip, -0.039);
+            }
 
-          // Nhấp nhô thân nhẹ theo từng nhịp chân chạm đất
-          modelInnerRef.current.position.y = Math.abs(Math.cos(phase)) * 0.025;
+            rotateBoneLocal(bones['left_arm_01'], 0, 0.22 * dip, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, 0.22 * dip, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.45 * dip, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.45 * dip, 0);
 
-          // Công thức chuẩn pha chống/vung 4 chi (khóa gối khi chống, gập khi vung)
-          const strideA = 0.35;
-          const swingFL = Math.sin(phase) * strideA;
-          const swingFR = Math.sin(phase + Math.PI) * strideA;
-          const swingBL = Math.sin(phase + Math.PI) * strideA;
-          const swingBR = Math.sin(phase) * strideA;
+            rotateBoneLocal(bones['left_leg_01'], 0, -0.24 * dip, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, -0.24 * dip, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.42 * dip, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.42 * dip, 0);
 
-          const liftFL = Math.max(0, -Math.cos(phase)) * 0.55;
-          const liftFR = Math.max(0, -Math.cos(phase + Math.PI)) * 0.55;
-          const liftBL = Math.max(0, -Math.cos(phase + Math.PI)) * 0.55;
-          const liftBR = Math.max(0, -Math.cos(phase)) * 0.55;
+            rotateBoneLocal(bones['neck'], 0, -0.10 * dip, 0);
+            rotateBoneLocal(bones['head'], 0, 0.05 * dip, 0);
+            rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.0) * 0.15);
 
-          rotateBoneLocal(bones['left_arm_01'], 0, swingFL, 0);
-          rotateBoneLocal(bones['left_arm_02'], 0, -liftFL, 0);
-          rotateBoneLocal(bones['left_hand'], 0, liftFL * 0.4, 0);
+            prevWalkSinRef.current = 0;
+          } else if (tCycle < 0.80) {
+            // Pha 2: Bật nhảy thấp lơ lửng (0.24 <= tCycle < 0.80)
+            const pAir = (tCycle - 0.24) / 0.56;
+            const hopArc = Math.sin(pAir * Math.PI);
 
-          rotateBoneLocal(bones['right_arm_01'], 0, swingFR, 0);
-          rotateBoneLocal(bones['right_arm_02'], 0, -liftFR, 0);
-          rotateBoneLocal(bones['right_hand'], 0, liftFR * 0.4, 0);
+            const airSpeed = 0.68 * Math.sin(pAir * Math.PI * 0.85 + 0.15);
+            const stepDist = Math.min(dist2D, delta * airSpeed);
+            curPos.x += (dx / dist2D) * stepDist;
+            curPos.z += (dz / dist2D) * stepDist;
 
-          rotateBoneLocal(bones['left_leg_01'], 0, swingBL, 0);
-          rotateBoneLocal(bones['left_leg_02'], 0, liftBL, 0);
-          rotateBoneLocal(bones['left_foot'], 0, -liftBL * 0.5, 0);
+            modelInnerRef.current.position.y = hopArc * 0.25;
+            modelInnerRef.current.rotation.x = -Math.cos(pAir * Math.PI) * 0.12;
 
-          rotateBoneLocal(bones['right_leg_01'], 0, swingBR, 0);
-          rotateBoneLocal(bones['right_leg_02'], 0, liftBR, 0);
-          rotateBoneLocal(bones['right_foot'], 0, -liftBR * 0.5, 0);
+            if (bones['waist']) {
+              bones['waist'].position.set(0, 0.257, -0.039);
+            }
 
-          rotateBoneLocal(bones['spine_02'], 0, 0, 0);
-          rotateBoneLocal(bones['neck'], 0, Math.sin(phase * 2) * 0.05, 0);
-          rotateBoneLocal(bones['head'], 0, Math.sin(phase * 2 + 0.4) * 0.05, 0);
-          rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.5) * 0.22);
-          rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 3.0) * 0.12);
-          rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 3.0) * 0.12);
+            const frontFold = Math.sin(Math.min(1, pAir * 1.35) * Math.PI);
 
-          // Kích hoạt gợn sóng bước chân ngay khoảnh khắc chân chạm đất (cực trị sin)
-          const currentSin = Math.sin(phase);
-          if (
-            (prevWalkSinRef.current < 0.92 && currentSin >= 0.92) ||
-            (prevWalkSinRef.current > -0.92 && currentSin <= -0.92)
-          ) {
-            rippleManager.add(
-              curPos.x,
-              curPos.y,
-              curPos.z,
-              '#fbcfe8',
-              0.05,
-              0.45,
-              0.75,
-              0.55,
-              false,
-              elapsed,
+            rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * frontFold, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.95 * frontFold, 0);
+
+            rotateBoneLocal(bones['left_leg_01'], 0, 0.38 * hopArc, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, 0.38 * hopArc, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.28 * hopArc, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.28 * hopArc, 0);
+
+            rotateBoneLocal(bones['neck'], 0, 0.22 * hopArc, 0);
+            rotateBoneLocal(bones['head'], 0, -0.10 * hopArc, 0);
+            rotateBoneLocal(bones['left_ear'], 0, 0, 0.24 * hopArc);
+            rotateBoneLocal(bones['right_ear'], 0, 0, -0.24 * hopArc);
+            rotateBoneLocal(bones['tail'], 0, -0.35 * hopArc, Math.sin(elapsed * 8.0) * 0.20);
+          } else {
+            // Pha 3: Tiếp đất giảm chấn (0.80 <= tCycle <= 1.0)
+            const cushion = Math.sin(((tCycle - 0.80) / 0.20) * Math.PI);
+
+            modelInnerRef.current.position.y = 0;
+            modelInnerRef.current.rotation.x = THREE.MathUtils.lerp(
+              modelInnerRef.current.rotation.x,
+              0,
+              delta * 12.0,
             );
+
+            if (bones['waist']) {
+              bones['waist'].position.set(0, 0.257 - 0.022 * cushion, -0.039);
+            }
+
+            rotateBoneLocal(bones['left_arm_01'], 0, 0.16 * cushion, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, 0.16 * cushion, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.34 * cushion, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.34 * cushion, 0);
+
+            rotateBoneLocal(bones['left_leg_01'], 0, -0.18 * cushion, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, -0.18 * cushion, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.32 * cushion, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.32 * cushion, 0);
+
+            rotateBoneLocal(bones['neck'], 0, 0.05 * cushion, 0);
+            rotateBoneLocal(bones['head'], 0, 0, 0);
+            rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 3.0) * 0.08);
+            rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 3.0) * 0.08);
+            rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.5) * 0.15);
+
+            if (prevWalkSinRef.current === 0) {
+              prevWalkSinRef.current = 1;
+              rippleManager.add(
+                curPos.x,
+                curPos.y,
+                curPos.z,
+                '#fbcfe8',
+                0.08,
+                0.65,
+                0.85,
+                0.60,
+                false,
+                elapsed,
+              );
+            }
           }
-          prevWalkSinRef.current = currentSin;
+
+          groupRef.current.position.copy(curPos);
         }
       } else if (state === 'LEAP_LAYER') {
         const prepTime = 0.3;
