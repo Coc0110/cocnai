@@ -166,6 +166,148 @@ export function animateSuppleBracelet(root: THREE.Object3D, elapsed: number): vo
   posAttr.needsUpdate = true;
 }
 
+let cachedRopeTexture: THREE.CanvasTexture | null = null;
+
+function getJuteRopeTexture(): THREE.CanvasTexture | null {
+  if (cachedRopeTexture) return cachedRopeTexture;
+
+  if (typeof document === 'undefined') return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Nền màu dây thừng gai tự nhiên (Warm Burlap / Jute Twine)
+  ctx.fillStyle = '#c69c6d';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Vẽ các thớ sợi gai xoắn chéo tạo hiệu ứng bện thừng 3D
+  for (let i = -256; i < 512; i += 8) {
+    ctx.strokeStyle = i % 16 === 0 ? '#9c7144' : '#dfc096';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + 256, 256);
+    ctx.stroke();
+  }
+
+  // Thêm nhiễu hạt sợi gai nhỏ
+  const imgData = ctx.getImageData(0, 0, 256, 256);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const grain = (Math.sin(i * 12.9898) * 43758.5453) % 1;
+    const delta = (grain - 0.5) * 26;
+    data[i] = Math.min(255, Math.max(0, data[i] + delta));
+    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + delta));
+    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + delta));
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(18, 2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+
+  cachedRopeTexture = tex;
+  return tex;
+}
+
+function createNeckRopeBow(neckY: number, neckRadius: number): THREE.Group {
+  const ropeGroup = new THREE.Group();
+  const ropeTex = getJuteRopeTexture();
+
+  const ropeMat = new THREE.MeshStandardMaterial({
+    map: ropeTex,
+    bumpMap: ropeTex,
+    bumpScale: 0.04,
+    color: new THREE.Color('#d7b388'),
+    roughness: 0.88,
+    metalness: 0.02,
+  });
+
+  const ropeThickness = 0.095;
+
+  // 1. Ba vòng dây thừng quấn sát quanh cổ chai
+  const wrapOffsets = [-0.14, 0.0, 0.14];
+  wrapOffsets.forEach((dy, idx) => {
+    const pts: THREE.Vector3[] = [];
+    const segs = 48;
+    const r = neckRadius + (idx === 1 ? 0.045 : 0.015);
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      const wobbleY = Math.sin(a * 5 + idx * 1.7) * 0.03;
+      const wobbleR = Math.cos(a * 4 + idx) * 0.02;
+      pts.push(
+        new THREE.Vector3(
+          Math.sin(a) * (r + wobbleR),
+          neckY + dy + wobbleY,
+          Math.cos(a) * (r + wobbleR),
+        ),
+      );
+    }
+    const curve = new THREE.CatmullRomCurve3(pts, true);
+    const geo = new THREE.TubeGeometry(curve, 72, ropeThickness, 10, true);
+    ropeGroup.add(new THREE.Mesh(geo, ropeMat));
+  });
+
+  const knotZ = neckRadius + 0.16;
+
+  // 2. Nút thắt dây thừng ở chính giữa mặt trước cổ chai
+  const knotPts = [
+    new THREE.Vector3(-0.22, neckY + 0.10, knotZ - 0.04),
+    new THREE.Vector3(0.0, neckY + 0.16, knotZ + 0.10),
+    new THREE.Vector3(0.22, neckY - 0.08, knotZ + 0.06),
+    new THREE.Vector3(-0.18, neckY - 0.12, knotZ + 0.08),
+    new THREE.Vector3(0.0, neckY + 0.06, knotZ + 0.14),
+  ];
+  const knotCurve = new THREE.CatmullRomCurve3(knotPts, true);
+  ropeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(knotCurve, 32, ropeThickness * 1.18, 10, true), ropeMat));
+
+  // 3. Hai cánh nơ (Bow Loops) xòe rộng sang hai bên trái & phải như hình mẫu
+  [-1, 1].forEach((dir) => {
+    // Tạo 2 sợi chập đôi cho mỗi bên cánh nơ giống hình chụp
+    [0, 1].forEach((strand) => {
+      const sOff = strand * 0.09;
+      const loopCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(dir * 0.08, neckY + 0.02, knotZ + 0.05),
+        new THREE.Vector3(dir * 1.35, neckY + 0.34 - sOff, knotZ + 0.18),
+        new THREE.Vector3(dir * 2.85, neckY + 0.05 - sOff * 1.2, knotZ - 0.05),
+        new THREE.Vector3(dir * 3.15, neckY - 0.45 - sOff, knotZ - 0.15),
+        new THREE.Vector3(dir * 2.25, neckY - 0.72 + sOff, knotZ + 0.08),
+        new THREE.Vector3(dir * 0.95, neckY - 0.35 + sOff * 0.5, knotZ + 0.14),
+        new THREE.Vector3(dir * 0.08, neckY - 0.04, knotZ + 0.05),
+      ]);
+      const loopGeo = new THREE.TubeGeometry(loopCurve, 64, ropeThickness * 0.92, 10, false);
+      ropeGroup.add(new THREE.Mesh(loopGeo, ropeMat));
+    });
+  });
+
+  // 4. Hai đuôi dây thừng buông rủ tự nhiên xuống dọc mặt trước thân lọ
+  // Đuôi bên trái
+  const leftTail = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.08, neckY - 0.06, knotZ + 0.08),
+    new THREE.Vector3(-0.55, neckY - 0.85, knotZ + 0.48),
+    new THREE.Vector3(-0.98, neckY - 1.95, knotZ + 0.55),
+    new THREE.Vector3(-1.22, neckY - 3.10, knotZ + 0.42),
+  ]);
+  ropeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(leftTail, 48, ropeThickness * 0.95, 10, false), ropeMat));
+
+  // Đuôi bên phải
+  const rightTail = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.08, neckY - 0.06, knotZ + 0.08),
+    new THREE.Vector3(0.62, neckY - 0.80, knotZ + 0.45),
+    new THREE.Vector3(1.18, neckY - 1.85, knotZ + 0.48),
+    new THREE.Vector3(1.58, neckY - 2.95, knotZ + 0.32),
+  ]);
+  ropeGroup.add(new THREE.Mesh(new THREE.TubeGeometry(rightTail, 48, ropeThickness * 0.95, 10, false), ropeMat));
+
+  return ropeGroup;
+}
+
 export function prepareKeepsakeScene(
   sourceScene: THREE.Object3D,
   item: KeepsakeManifestItem,
@@ -173,16 +315,16 @@ export function prepareKeepsakeScene(
   const cloned = sourceScene.clone(true);
   const wrapper = new THREE.Group();
 
-  // 1. CHIẾC LỌ THỦY TINH: Bỏ nước + bỏ lớp kính đục bên trong + KÉO DÀI THÂN TRỤ (2x) & THU NGẮN CỔ LỌ (0.5x)
+  // 1. CHIẾC LỌ THỦY TINH: Bỏ nước + kéo dài thân hình trụ 1.5x + thắt nơ dây thừng ở cổ chai
   if (item.id === 'glass-bottle') {
     const toRemove: THREE.Object3D[] = [];
     const yCylBot = 0.63;
     const yCylTop = 3.60; // Đỉnh phần thân hình trụ
-    const yNeckTop = 5.75; // Chân vành miệng lọ
+    const stretchFactor = 1.5; // Kéo dài phần thân hình trụ gấp 1.5 lần
+    const newCylTop = yCylBot + (yCylTop - yCylBot) * stretchFactor; // 0.63 + 2.97 * 1.5 = 5.085
+    const totalDeltaY = newCylTop - yCylTop; // +1.485
 
-    const newCylTop = yCylBot + (yCylTop - yCylBot) * 2.0; // 0.63 + 2.97 * 2 = 6.57
-    const newNeckTop = newCylTop + (yNeckTop - yCylTop) * 0.5; // 6.57 + 2.15 * 0.5 = 7.645
-    const totalDeltaY = newNeckTop - yNeckTop; // +1.895
+    let bottleParentNode: THREE.Object3D | null = null;
 
     cloned.traverse((child) => {
       const name = child.name.toLowerCase();
@@ -195,12 +337,9 @@ export function prepareKeepsakeScene(
         return;
       }
 
-      // Dịch chuyển và thu nhỏ nút bần (Cork_3) khớp chính xác với miệng lọ mới
+      // Giữ nguyên kích thước gốc của nút bần (Cork_3), chỉ tịnh tiến lên theo độ giãn thân trụ (+1.485)
       if (/cork_3/i.test(name)) {
-        child.scale.x *= 0.65;
-        child.scale.z *= 0.65;
-        child.scale.y *= 0.85;
-        child.position.y += totalDeltaY - 0.18;
+        child.position.y += totalDeltaY;
         child.updateMatrix();
       }
 
@@ -215,37 +354,17 @@ export function prepareKeepsakeScene(
         }
 
         if (/glass/i.test(matName)) {
+          bottleParentNode = mesh.parent || cloned;
+
+          // Giữ nguyên bán kính ngang (X, Z) và hình dáng cổ/miệng lọ gốc, chỉ kéo dài đoạn hình trụ (0.63 -> 3.60) gấp 1.5x
           const geo = mesh.geometry.clone();
           const pos = geo.attributes.position as THREE.BufferAttribute;
           for (let i = 0; i < pos.count; i++) {
             const y = pos.getY(i);
-            const x = pos.getX(i);
-            const z = pos.getZ(i);
-
             if (y > yCylBot && y <= yCylTop) {
-              // Kéo dài phần hình trụ gấp đôi (2x)
-              pos.setY(i, yCylBot + (y - yCylBot) * 2.0);
-            } else if (y > yCylTop && y <= yNeckTop) {
-              // Thu ngắn phần từ hình trụ lên miệng lọ một nửa (0.5x)
-              pos.setY(i, newCylTop + (y - yCylTop) * 0.5);
-            } else if (y > yNeckTop) {
-              // Vành miệng lọ dịch lên tương ứng
+              pos.setY(i, yCylBot + (y - yCylBot) * stretchFactor);
+            } else if (y > yCylTop) {
               pos.setY(i, y + totalDeltaY);
-            }
-
-            // Thu nhỏ đường kính ngang (X, Z) của vai lọ, cổ lọ và miệng lọ
-            if (y > yCylTop) {
-              let radialScale = 1.0;
-              if (y <= 5.35) {
-                const t = (y - yCylTop) / (5.35 - yCylTop);
-                radialScale = 1.0 - t * t * (3 - 2 * t) * (1.0 - 0.64);
-              } else if (y <= yNeckTop) {
-                radialScale = 0.64;
-              } else {
-                radialScale = 0.66;
-              }
-              pos.setX(i, x * radialScale);
-              pos.setZ(i, z * radialScale);
             }
           }
           pos.needsUpdate = true;
@@ -268,6 +387,14 @@ export function prepareKeepsakeScene(
       obj.visible = false;
       if (obj.parent) obj.parent.remove(obj);
     });
+
+    // Thêm sợi dây thừng thắt nơ ở eo cổ chai (tại y = 5.45 + 1.485 = 6.935, bán kính cổ chai = 2.11)
+    const ropeBow = createNeckRopeBow(5.45 + totalDeltaY, 2.11);
+    if (bottleParentNode) {
+      (bottleParentNode as THREE.Object3D).add(ropeBow);
+    } else {
+      cloned.add(ropeBow);
+    }
   }
 
   // 2. CHIẾC VÒNG TAY CỎ 4 LÁ: Tách InterleavedBuffer thành BufferAttribute độc lập + Dây mềm mại lỏng lẻo
