@@ -8,3 +8,13 @@ export interface KeepsakeManifestItem {
 export type CompanionId = 'froakie' | 'deerling';
 
 export type GestureKind = 'tap' | 'drag';
+
+export interface LetterItem {
+  id: number;
+  front: string;
+  back: string;
+  backDesign: number;
+  width: number;
+  height: number;
+  aspectRatio: number;
+}

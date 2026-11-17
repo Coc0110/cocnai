@@ -1,0 +1,281 @@
+[
+  {
+    "id": 1,
+    "front": "/letters/letter_01_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 2,
+    "front": "/letters/letter_02_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 3,
+    "front": "/letters/letter_03_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 4,
+    "front": "/letters/letter_04_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 5,
+    "front": "/letters/letter_05_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 982,
+    "height": 246,
+    "aspectRatio": 3.9919
+  },
+  {
+    "id": 6,
+    "front": "/letters/letter_06_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 885,
+    "height": 222,
+    "aspectRatio": 3.9865
+  },
+  {
+    "id": 7,
+    "front": "/letters/letter_07_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 886,
+    "height": 221,
+    "aspectRatio": 4.009
+  },
+  {
+    "id": 8,
+    "front": "/letters/letter_08_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 885,
+    "height": 222,
+    "aspectRatio": 3.9865
+  },
+  {
+    "id": 9,
+    "front": "/letters/letter_09_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 885,
+    "height": 222,
+    "aspectRatio": 3.9865
+  },
+  {
+    "id": 10,
+    "front": "/letters/letter_10_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 880,
+    "height": 220,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 11,
+    "front": "/letters/letter_11_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 885,
+    "height": 222,
+    "aspectRatio": 3.9865
+  },
+  {
+    "id": 12,
+    "front": "/letters/letter_12_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 1000,
+    "height": 250,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 13,
+    "front": "/letters/letter_13_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 980,
+    "height": 245,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 14,
+    "front": "/letters/letter_14_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 980,
+    "height": 245,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 15,
+    "front": "/letters/letter_15_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 990,
+    "height": 275,
+    "aspectRatio": 3.6
+  },
+  {
+    "id": 16,
+    "front": "/letters/letter_16_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 980,
+    "height": 245,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 17,
+    "front": "/letters/letter_17_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 992,
+    "height": 248,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 18,
+    "front": "/letters/letter_18_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 980,
+    "height": 245,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 19,
+    "front": "/letters/letter_19_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 20,
+    "front": "/letters/letter_20_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 21,
+    "front": "/letters/letter_21_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 860,
+    "height": 215,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 22,
+    "front": "/letters/letter_22_front.webp",
+    "back": "/letters/back_02.webp",
+    "backDesign": 2,
+    "width": 864,
+    "height": 216,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 23,
+    "front": "/letters/letter_23_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 860,
+    "height": 215,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 24,
+    "front": "/letters/letter_24_front.webp",
+    "back": "/letters/back_05.webp",
+    "backDesign": 5,
+    "width": 860,
+    "height": 215,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 25,
+    "front": "/letters/letter_25_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 26,
+    "front": "/letters/letter_26_front.webp",
+    "back": "/letters/back_03.webp",
+    "backDesign": 3,
+    "width": 840,
+    "height": 210,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 27,
+    "front": "/letters/letter_27_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 880,
+    "height": 220,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 28,
+    "front": "/letters/letter_28_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 872,
+    "height": 218,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 29,
+    "front": "/letters/letter_29_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 880,
+    "height": 220,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 30,
+    "front": "/letters/letter_30_front.webp",
+    "back": "/letters/back_04.webp",
+    "backDesign": 4,
+    "width": 820,
+    "height": 205,
+    "aspectRatio": 4.0
+  },
+  {
+    "id": 31,
+    "front": "/letters/letter_31_front.webp",
+    "back": "/letters/back_01.webp",
+    "backDesign": 1,
+    "width": 828,
+    "height": 207,
+    "aspectRatio": 4.0
+  }
+]

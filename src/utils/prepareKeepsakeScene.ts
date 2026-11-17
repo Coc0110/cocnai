@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { KeepsakeManifestItem } from '../types/universe';
+import { KeepsakeManifestItem, LetterItem } from '../types/universe';
+import lettersData from '../data/letters.json';
 
 const braceletTextureCache = new WeakMap<THREE.Texture, THREE.CanvasTexture>();
 
@@ -370,6 +371,198 @@ export function animateGlassBottleRope(scene: THREE.Object3D, elapsed: number) {
   bowLooseGroup.rotation.x = Math.cos(elapsed * 1.2) * 0.025;
 }
 
+const backTextureCache: Record<number, THREE.Texture> = {};
+
+export function getBackTexture(designNum: number): THREE.Texture {
+  if (!backTextureCache[designNum]) {
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load(`/letters/back_0${designNum}.webp`);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.repeat.set(1, 1);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    backTextureCache[designNum] = tex;
+  }
+  return backTextureCache[designNum];
+}
+
+// Tạo cấu trúc 1 viên nang con nhộng (capsule) chứa cuộn thư hoa văn và vòng vàng
+export function createSingleCapsule(letter: LetterItem): THREE.Group {
+  const capsule = new THREE.Group();
+  capsule.userData.capsuleId = letter.id;
+
+  // 1. Cuộn giấy thư bên trong (scrollRoll)
+  const scrollRoll = new THREE.Group();
+  scrollRoll.name = 'scrollRoll';
+
+  const outerGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.94, 24, 1, true);
+  const backTex = getBackTexture(letter.backDesign);
+  const outerMat = new THREE.MeshStandardMaterial({
+    map: backTex,
+    roughness: 0.8,
+    metalness: 0.05,
+    side: THREE.FrontSide,
+  });
+  const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+  scrollRoll.add(outerMesh);
+
+  // Mặt trong màu kem giấy
+  const innerGeo = new THREE.CylinderGeometry(0.176, 0.176, 0.94, 24, 1, true);
+  const innerMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#fdf6e7'),
+    roughness: 0.9,
+    side: THREE.BackSide,
+  });
+  const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+  scrollRoll.add(innerMesh);
+
+  // 2 vòng xoắn giấy ở 2 đầu (y = +0.47 và -0.47)
+  const ringGeo = new THREE.RingGeometry(0.03, 0.178, 24);
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#f5eedb'),
+    roughness: 0.85,
+    side: THREE.DoubleSide,
+  });
+  const topRing = new THREE.Mesh(ringGeo, ringMat);
+  topRing.rotation.x = Math.PI / 2;
+  topRing.position.y = 0.47;
+  scrollRoll.add(topRing);
+
+  const botRing = new THREE.Mesh(ringGeo, ringMat);
+  botRing.rotation.x = Math.PI / 2;
+  botRing.position.y = -0.47;
+  scrollRoll.add(botRing);
+
+  capsule.add(scrollRoll);
+
+  // 2. Vòng vàng cột giữa cuộn thư (goldRing)
+  const goldRingGeo = new THREE.TorusGeometry(0.198, 0.026, 12, 28);
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#fbbf24'),
+    metalness: 0.88,
+    roughness: 0.15,
+    emissive: new THREE.Color('#d97706'),
+    emissiveIntensity: 0.22,
+    transparent: true,
+    opacity: 1.0,
+  });
+  const goldRing = new THREE.Mesh(goldRingGeo, goldMat);
+  goldRing.name = 'goldRing';
+  goldRing.rotation.x = Math.PI / 2;
+  goldRing.position.y = 0;
+  capsule.add(goldRing);
+
+  // 3. Nửa vỏ nhựa trong suốt phía trên (topShell) và phía dưới (bottomShell)
+  const plasticMatTop = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#ffffff'),
+    transparent: true,
+    opacity: 0.24,
+    roughness: 0.08,
+    transmission: 0.65,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const plasticMatBot = plasticMatTop.clone();
+
+  // topShell (y >= 0): Ống trụ (radius 0.235, length 0.38) + Chỏm bán cầu ở đỉnh (y = 0.38 -> 0.61)
+  const topShell = new THREE.Group();
+  topShell.name = 'topShell';
+  const topCylGeo = new THREE.CylinderGeometry(0.235, 0.235, 0.38, 24, 1, true);
+  const topCylMesh = new THREE.Mesh(topCylGeo, plasticMatTop);
+  topCylMesh.position.y = 0.19;
+  topShell.add(topCylMesh);
+
+  // Gờ nối nhẹ ở khớp giữa
+  const topLipGeo = new THREE.TorusGeometry(0.238, 0.012, 8, 24);
+  const topLipMesh = new THREE.Mesh(topLipGeo, plasticMatTop);
+  topLipMesh.rotation.x = Math.PI / 2;
+  topLipMesh.position.y = 0.01;
+  topShell.add(topLipMesh);
+
+  const topDomeGeo = new THREE.SphereGeometry(0.235, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  const topDomeMesh = new THREE.Mesh(topDomeGeo, plasticMatTop);
+  topDomeMesh.position.y = 0.38;
+  topShell.add(topDomeMesh);
+  capsule.add(topShell);
+
+  // bottomShell (y <= 0): Ống trụ (radius 0.23, length 0.38) + Chỏm bán cầu ở đáy (y = -0.38 -> -0.61)
+  const bottomShell = new THREE.Group();
+  bottomShell.name = 'bottomShell';
+  const botCylGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.38, 24, 1, true);
+  const botCylMesh = new THREE.Mesh(botCylGeo, plasticMatBot);
+  botCylMesh.position.y = -0.19;
+  bottomShell.add(botCylMesh);
+
+  const botDomeGeo = new THREE.SphereGeometry(0.23, 24, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  const botDomeMesh = new THREE.Mesh(botDomeGeo, plasticMatBot);
+  botDomeMesh.position.y = -0.38;
+  bottomShell.add(botDomeMesh);
+  capsule.add(bottomShell);
+
+  return capsule;
+}
+
+// Xếp 31 viên nang thành 5 tầng tự nhiên trong lòng thân bình (y: 1.15 -> 4.75, r <= 1.55)
+export function createLetterCapsulesGroup(): { capsulesGroup: THREE.Group; capsulesList: THREE.Group[] } {
+  const capsulesGroup = new THREE.Group();
+  capsulesGroup.name = 'letterCapsulesGroup';
+  const capsulesList: THREE.Group[] = [];
+
+  const layerCounts = [6, 6, 7, 6, 6];
+  const layerY = [1.35, 2.05, 2.75, 3.45, 4.15];
+
+  let currentId = 1;
+  for (let l = 0; l < 5; l++) {
+    const count = layerCounts[l];
+    const baseY = layerY[l];
+    const layerOffsetAngle = l * 1.37;
+
+    for (let i = 0; i < count; i++) {
+      if (currentId > (lettersData as LetterItem[]).length) break;
+      const letter = (lettersData as LetterItem[])[currentId - 1];
+      const capsule = createSingleCapsule(letter);
+
+      let r = 0;
+      let angle = 0;
+      if (count === 7 && i === 0) {
+        r = 0.25;
+        angle = layerOffsetAngle;
+      } else {
+        const stepIndex = count === 7 ? i - 1 : i;
+        const totalOuter = count === 7 ? count - 1 : count;
+        angle = (stepIndex / totalOuter) * Math.PI * 2 + layerOffsetAngle;
+        r = 0.95 + ((currentId * 7) % 5) * 0.11; // 0.95 -> 1.39 <= 1.55
+      }
+
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
+      const y = baseY + ((currentId * 13) % 7) * 0.05 - 0.15;
+
+      capsule.position.set(x, y, z);
+
+      // Độ nghiêng ngẫu nhiên cố định theo id
+      const tiltAngle = 0.35 + ((currentId * 11) % 4) * 0.18;
+      const yawAngle = angle + Math.PI / 2 + ((currentId * 17) % 5) * 0.25;
+      capsule.rotation.order = 'YXZ';
+      capsule.rotation.y = yawAngle;
+      capsule.rotation.x = Math.sin(currentId * 2.3) * tiltAngle;
+      capsule.rotation.z = Math.cos(currentId * 1.9) * tiltAngle;
+
+      capsule.userData.initialPosition = capsule.position.clone();
+      capsule.userData.initialRotation = capsule.rotation.clone();
+
+      capsulesGroup.add(capsule);
+      capsulesList.push(capsule);
+      currentId++;
+    }
+  }
+
+  return { capsulesGroup, capsulesList };
+}
+
 export function prepareKeepsakeScene(
   sourceScene: THREE.Object3D,
   item: KeepsakeManifestItem,
@@ -403,6 +596,10 @@ export function prepareKeepsakeScene(
       if (/cork_3/i.test(name)) {
         child.position.y += totalDeltaY;
         child.updateMatrix();
+        child.userData.closedPos = child.position.clone();
+        child.userData.closedRot = child.rotation.clone();
+        wrapper.userData.corkNode = child;
+        cloned.userData.corkNode = child;
       }
 
       if ((child as THREE.Mesh).isMesh) {
@@ -459,6 +656,16 @@ export function prepareKeepsakeScene(
     }
     wrapper.userData.ropeBowGroup = bowLooseGroup;
     cloned.userData.ropeBowGroup = bowLooseGroup;
+
+    // Dựng 31 viên nang thư đặt trong lòng phần thân hình trụ của lọ (y từ 1.15 đến 4.75, r <= 1.55)
+    const { capsulesGroup, capsulesList } = createLetterCapsulesGroup();
+    if (bottleParentNode) {
+      (bottleParentNode as THREE.Object3D).add(capsulesGroup);
+    } else {
+      cloned.add(capsulesGroup);
+    }
+    wrapper.userData.capsules = capsulesList;
+    cloned.userData.capsules = capsulesList;
   }
 
   // 2. CHIẾC VÒNG TAY CỎ 4 LÁ: Tách InterleavedBuffer thành BufferAttribute độc lập + Dây mềm mại lỏng lẻo
