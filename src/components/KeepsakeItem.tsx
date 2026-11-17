@@ -9,6 +9,7 @@ import { computeGravityWellImpulse } from '../utils/physicsMath';
 import {
   prepareKeepsakeScene,
   animateSuppleBracelet,
+  animateGlassBottleRope,
 } from '../utils/prepareKeepsakeScene';
 
 interface KeepsakeItemProps {
@@ -89,6 +90,9 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
     if (item.id === 'clover-bracelet') {
       animateSuppleBracelet(preparedScene, elapsed);
+    }
+    if (item.id === 'glass-bottle') {
+      animateGlassBottleRope(preparedScene, elapsed);
     }
   });
 

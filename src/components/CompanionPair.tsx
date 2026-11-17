@@ -794,6 +794,9 @@ function CompanionEntity({
           deerlingStateTimerRef.current = 0;
         }
       } else if (state === 'WALKING') {
+        // 1. Luôn reset toàn bộ xương về Bind/Rest Pose ở đầu frame để góc quay không bị cộng dồn
+        resetAllBones(bones);
+
         const dx = targetPos.x - curPos.x;
         const dz = targetPos.z - curPos.z;
         const dist2D = Math.hypot(dx, dz);
@@ -801,7 +804,12 @@ function CompanionEntity({
         const cycleDuration = 1.35;
         const tCycle = (timer % cycleDuration) / cycleDuration;
 
-        if (dist2D < 0.14 || (dist2D < 0.35 && tCycle > 0.92)) {
+        // 2. Chỉ chuyển trạng thái nghỉ ở cuối Pha 3 tiếp đất (tCycle >= 0.92 && dist2D < 0.22) hoặc trước Pha 1 (tCycle < 0.08 && dist2D < 0.18)
+        const canArrive =
+          (tCycle >= 0.92 && dist2D < 0.22) ||
+          (tCycle < 0.08 && dist2D < 0.18);
+
+        if (canArrive) {
           // Đến nơi: chuyển sang một trong các trạng thái nghỉ/tĩnh
           const rand = Math.random();
           if (rand < 0.35) {
@@ -859,10 +867,13 @@ function CompanionEntity({
             const pAir = (tCycle - 0.24) / 0.56;
             const hopArc = Math.sin(pAir * Math.PI);
 
-            const airSpeed = 0.68 * Math.sin(pAir * Math.PI * 0.85 + 0.15);
-            const stepDist = Math.min(dist2D, delta * airSpeed);
-            curPos.x += (dx / dist2D) * stepDist;
-            curPos.z += (dz / dist2D) * stepDist;
+            // Nếu dist2D < 0.05 thì ngừng cộng thêm tọa độ nhưng vẫn chạy hết tiến trình đến Pha 3
+            if (dist2D >= 0.05) {
+              const airSpeed = 0.68 * Math.sin(pAir * Math.PI * 0.85 + 0.15);
+              const stepDist = Math.min(dist2D, delta * airSpeed);
+              curPos.x += (dx / dist2D) * stepDist;
+              curPos.z += (dz / dist2D) * stepDist;
+            }
 
             modelInnerRef.current.position.y = hopArc * 0.25;
             modelInnerRef.current.rotation.x = -Math.cos(pAir * Math.PI) * 0.12;
@@ -871,7 +882,9 @@ function CompanionEntity({
               bones['waist'].position.set(0, 0.257, -0.039);
             }
 
-            const frontFold = Math.sin(Math.min(1, pAir * 1.35) * Math.PI);
+            // Ở nửa cuối Pha 2 (pAir > 0.5), duỗi dần gối trước về 0 theo (1 - pAir) * 2 để chân trước duỗi thẳng đón đất
+            const foldMultiplier = pAir > 0.5 ? Math.max(0, (1 - pAir) * 2) : 1.0;
+            const frontFold = Math.sin(Math.min(1, pAir * 1.35) * Math.PI) * foldMultiplier;
 
             rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc, 0);
             rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc, 0);

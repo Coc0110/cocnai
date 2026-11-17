@@ -218,124 +218,64 @@ function getJuteRopeTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
-// Tạo cấu trúc dây thừng bện xoắn 2-ply (2 sợi xoắn kép quanh nhau) chân thật
-function createTwistedCord(
+// Tạo cấu trúc dây thừng bện từ 7 tao sợi nhỏ (1 lõi ở tâm + 6 sợi mảnh xoắn ốc quanh lõi)
+function createMultiStrandBraidedCord(
   centerCurve: THREE.Curve<THREE.Vector3>,
   segs: number,
   strandRadius: number,
-  plyOffset: number,
+  basePlyOffset: number,
   twistTurns: number,
   material: THREE.Material,
   group: THREE.Group,
   closed = false,
+  isTail = false,
 ) {
   const frames = centerCurve.computeFrenetFrames(segs, closed);
-  [0, Math.PI].forEach((phase) => {
+  const geos: THREE.BufferGeometry[] = [];
+
+  // 1 tao sợi lõi ở tâm
+  const corePts: THREE.Vector3[] = [];
+  for (let i = 0; i <= segs; i++) {
+    corePts.push(centerCurve.getPointAt(i / segs));
+  }
+  const coreCurve = new THREE.CatmullRomCurve3(corePts, closed);
+  geos.push(new THREE.TubeGeometry(coreCurve, segs * 2, strandRadius, 6, closed));
+
+  // 6 tao sợi mảnh xoắn ốc đều quanh lõi
+  for (let k = 0; k < 6; k++) {
+    const phase = (k / 6) * Math.PI * 2;
     const strandPts: THREE.Vector3[] = [];
     for (let i = 0; i <= segs; i++) {
       const u = i / segs;
       const pt = centerCurve.getPointAt(u);
       const N = frames.normals[i];
       const B = frames.binormals[i];
+
+      // Ở 6% cuối cùng của 2 đuôi dây (u > 0.94), chỉ mở rộng nhẹ plyOffset thêm 1.0 -> 1.6
+      const taper = isTail && u > 0.94 ? 1.0 + THREE.MathUtils.smoothstep(u, 0.94, 1.0) * 0.6 : 1.0;
+      const curOffset = basePlyOffset * taper;
       const angle = u * twistTurns * Math.PI * 2 + phase;
+
       const offset = new THREE.Vector3()
         .copy(N)
-        .multiplyScalar(Math.cos(angle) * plyOffset)
-        .addScaledVector(B, Math.sin(angle) * plyOffset);
+        .multiplyScalar(Math.cos(angle) * curOffset)
+        .addScaledVector(B, Math.sin(angle) * curOffset);
+
       strandPts.push(pt.clone().add(offset));
     }
     const strandCurve = new THREE.CatmullRomCurve3(strandPts, closed);
-    const tubeGeo = new THREE.TubeGeometry(strandCurve, segs * 2, strandRadius, 6, closed);
-    group.add(new THREE.Mesh(tubeGeo, material));
-  });
-}
+    geos.push(new THREE.TubeGeometry(strandCurve, segs * 2, strandRadius, 6, closed));
+  }
 
-// Thêm các sợi lông tơ xù xì dọc thân dây và chùm sợi tơ te tua ở điểm cắt đuôi dây
-function addFrayedFibers(
-  curves: THREE.Curve<THREE.Vector3>[],
-  tailEnds: { endPt: THREE.Vector3; endDir: THREE.Vector3 }[],
-  material: THREE.Material,
-  group: THREE.Group,
-) {
-  const fiberGeos: THREE.BufferGeometry[] = [];
-
-  // 1. Sợi lông tơ te tua xù xì dọc khắp thân dây (whiskers / fuzz)
-  curves.forEach((curve) => {
-    const hairCount = 18;
-    for (let i = 0; i < hairCount; i++) {
-      const u = 0.04 + Math.random() * 0.92;
-      const pt = curve.getPointAt(u);
-      const tangent = curve.getTangentAt(u);
-
-      const randVec = new THREE.Vector3(
-        (Math.random() - 0.5) * 2,
-        (Math.random() - 0.5) * 2,
-        (Math.random() - 0.5) * 2,
-      );
-      const normal = randVec.cross(tangent).normalize();
-
-      const hairLen = 0.10 + Math.random() * 0.20;
-      const p0 = pt.clone().addScaledVector(normal, 0.075);
-      const p1 = p0.clone().addScaledVector(normal, hairLen * 0.5).add(
-        new THREE.Vector3(
-          (Math.random() - 0.5) * 0.08,
-          (Math.random() - 0.5) * 0.08,
-          (Math.random() - 0.5) * 0.08,
-        ),
-      );
-      const p2 = p0.clone().addScaledVector(normal, hairLen).add(
-        new THREE.Vector3(
-          (Math.random() - 0.5) * 0.12,
-          (Math.random() - 0.5) * 0.12,
-          (Math.random() - 0.5) * 0.12,
-        ),
-      );
-
-      const hairCurve = new THREE.CatmullRomCurve3([p0, p1, p2]);
-      fiberGeos.push(new THREE.TubeGeometry(hairCurve, 4, 0.012, 3, false));
-    }
-  });
-
-  // 2. Chùm đuôi sợi tơ xòe te tua unraveled ở điểm cắt đuôi dây thừng
-  tailEnds.forEach(({ endPt, endDir }) => {
-    const bristleCount = 20;
-    const arbitrary = Math.abs(endDir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-    const uAxis = new THREE.Vector3().crossVectors(endDir, arbitrary).normalize();
-    const vAxis = new THREE.Vector3().crossVectors(endDir, uAxis).normalize();
-
-    for (let i = 0; i < bristleCount; i++) {
-      const angle = (i / bristleCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
-      const spread = 0.25 + Math.random() * 0.55;
-      const len = 0.28 + Math.random() * 0.42;
-
-      const dir = endDir
-        .clone()
-        .addScaledVector(uAxis, Math.cos(angle) * spread)
-        .addScaledVector(vAxis, Math.sin(angle) * spread)
-        .normalize();
-
-      const p0 = endPt.clone();
-      const p1 = p0.clone().addScaledVector(dir, len * 0.5).add(
-        new THREE.Vector3((Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06),
-      );
-      const p2 = p0.clone().addScaledVector(dir, len).add(
-        new THREE.Vector3((Math.random() - 0.5) * 0.10, (Math.random() - 0.5) * 0.10, (Math.random() - 0.5) * 0.10),
-      );
-
-      const bristleCurve = new THREE.CatmullRomCurve3([p0, p1, p2]);
-      fiberGeos.push(new THREE.TubeGeometry(bristleCurve, 5, 0.014, 3, false));
-    }
-  });
-
-  if (fiberGeos.length > 0) {
-    const merged = mergeGeometries(fiberGeos);
-    if (merged) {
-      group.add(new THREE.Mesh(merged, material));
-    }
+  const merged = mergeGeometries(geos);
+  if (merged) {
+    group.add(new THREE.Mesh(merged, material));
+  } else {
+    geos.forEach((g) => group.add(new THREE.Mesh(g, material)));
   }
 }
 
-function createNeckRopeBow(neckY: number, neckRadius: number): THREE.Group {
+function createNeckRopeBow(neckY: number, neckRadius: number): { ropeGroup: THREE.Group; bowLooseGroup: THREE.Group } {
   const ropeGroup = new THREE.Group();
   const ropeTex = getJuteRopeTexture();
 
@@ -343,114 +283,91 @@ function createNeckRopeBow(neckY: number, neckRadius: number): THREE.Group {
   const ropeMat = new THREE.MeshStandardMaterial({
     map: ropeTex,
     bumpMap: ropeTex,
-    bumpScale: 0.05,
+    bumpScale: 0.04,
     color: new THREE.Color('#f2e5d0'),
     roughness: 0.94,
     metalness: 0.0,
   });
 
-  // Vật liệu cho các sợi lông tơ te tua (hơi sáng màu hơn để bắt sáng mờ)
-  const hairMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#fbf4e5'),
-    roughness: 0.98,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
-  });
+  const strandRadius = 0.024;
+  const plyOffset = 0.038;
 
-  const curvesForHairs: THREE.Curve<THREE.Vector3>[] = [];
-
-  // 1. Quấn xoắn bện 3.25 vòng ôm chặt sát cổ chai (các vòng chạm khít vào nhau không hở rãnh)
+  // 1. Quấn cổ chai: Chỉ dùng 2 vòng dây ôm hơi trễ tự nhiên quanh eo cổ chai (hơi võng nhẹ ở phía trước)
   const wrapPts: THREE.Vector3[] = [];
-  const wrapSteps = 84;
-  const turns = 3.25;
+  const wrapSteps = 72;
+  const turns = 2.0;
   for (let i = 0; i <= wrapSteps; i++) {
     const u = i / wrapSteps;
     const a = u * turns * Math.PI * 2;
-    const r = neckRadius + 0.035 + Math.sin(a * 4) * 0.015;
-    const y = neckY - 0.14 + u * 0.28 + Math.cos(a * 3) * 0.015;
+    const frontSag = Math.max(0, Math.cos(a)) * -0.07;
+    const y = neckY - 0.08 + u * 0.16 + frontSag;
+    const r = neckRadius + 0.03;
     wrapPts.push(new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r));
   }
   const wrapCurve = new THREE.CatmullRomCurve3(wrapPts, false);
-  createTwistedCord(wrapCurve, 72, 0.050, 0.044, 28, ropeMat, ropeGroup, false);
-  curvesForHairs.push(wrapCurve);
+  createMultiStrandBraidedCord(wrapCurve, 56, strandRadius, plyOffset, 30, ropeMat, ropeGroup, false, false);
 
-  const knotZ = neckRadius + 0.16;
+  const knotZ = neckRadius + 0.10;
 
-  // 2. Nút thắt bện chặt ở chính giữa mặt trước cổ chai
-  const knotCurve1 = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.24, neckY + 0.08, knotZ - 0.02),
-    new THREE.Vector3(0.0, neckY + 0.16, knotZ + 0.14),
-    new THREE.Vector3(0.24, neckY - 0.04, knotZ + 0.06),
-    new THREE.Vector3(-0.16, neckY - 0.12, knotZ + 0.08),
-    new THREE.Vector3(0.0, neckY + 0.06, knotZ + 0.16),
-  ]);
-  createTwistedCord(knotCurve1, 32, 0.052, 0.046, 5, ropeMat, ropeGroup, false);
-
-  const knotCurve2 = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.0, neckY + 0.22, knotZ + 0.04),
-    new THREE.Vector3(0.12, neckY + 0.02, knotZ + 0.18),
-    new THREE.Vector3(0.0, neckY - 0.22, knotZ + 0.06),
-    new THREE.Vector3(-0.12, neckY + 0.02, knotZ + 0.16),
-    new THREE.Vector3(0.0, neckY + 0.22, knotZ + 0.04),
+  // 2. Nút thắt quấn ở chính giữa mặt trước cổ chai
+  const knotCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.10, neckY - 0.08, knotZ),
+    new THREE.Vector3(0.0, neckY + 0.09, knotZ + 0.07),
+    new THREE.Vector3(0.10, neckY - 0.06, knotZ),
+    new THREE.Vector3(0.0, neckY - 0.10, knotZ - 0.02),
+    new THREE.Vector3(-0.10, neckY - 0.08, knotZ),
   ], true);
-  createTwistedCord(knotCurve2, 32, 0.048, 0.042, 5, ropeMat, ropeGroup, true);
+  createMultiStrandBraidedCord(knotCurve, 24, strandRadius, plyOffset, 6, ropeMat, ropeGroup, true, false);
 
-  // 3. Hai cánh nơ (Bow Loops) xòe rộng sang hai bên trái & phải (mỗi bên 2 sợi bện xoắn chập đôi)
+  // 3. bowLooseGroup: Tâm xoay đặt tại đúng nút thắt (0, neckY, knotZ)
+  const bowLooseGroup = new THREE.Group();
+  bowLooseGroup.position.set(0, neckY, knotZ);
+
+  // Cánh nơ (Bow Loop): Mỗi bên trái/phải chỉ có ĐÚNG 1 vòng cánh nơ duy nhất.
+  // Đường cong rủ trễ mềm mại theo trọng lực: vồng nhẹ rồi rủ trễ sâu xuống dưới tại đầu mút (neckY - 0.95 -> y_local = -0.95), hơi cong ôm thân bình.
   [-1, 1].forEach((dir) => {
-    // Cánh nơ chính lớn bên ngoài
-    const outerLoopCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(dir * 0.08, neckY + 0.04, knotZ + 0.06),
-      new THREE.Vector3(dir * 1.35, neckY + 0.38, knotZ + 0.18),
-      new THREE.Vector3(dir * 2.85, neckY + 0.12, knotZ - 0.02),
-      new THREE.Vector3(dir * 3.15, neckY - 0.38, knotZ - 0.12),
-      new THREE.Vector3(dir * 2.25, neckY - 0.68, knotZ + 0.06),
-      new THREE.Vector3(dir * 0.95, neckY - 0.32, knotZ + 0.14),
-      new THREE.Vector3(dir * 0.08, neckY - 0.02, knotZ + 0.06),
+    const loopCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(dir * 0.04, 0.01, 0.02),
+      new THREE.Vector3(dir * 0.50, 0.14, 0.06),
+      new THREE.Vector3(dir * 1.10, -0.18, -0.02),
+      new THREE.Vector3(dir * 1.45, -0.95, -0.12),
+      new THREE.Vector3(dir * 1.05, -0.80, -0.02),
+      new THREE.Vector3(dir * 0.45, -0.42, 0.05),
+      new THREE.Vector3(dir * 0.04, -0.04, 0.02),
     ], true);
-    createTwistedCord(outerLoopCurve, 54, 0.048, 0.042, 10, ropeMat, ropeGroup, true);
-    curvesForHairs.push(outerLoopCurve);
-
-    // Cánh nơ phụ chập đôi hơi lệch góc phía trước
-    const innerLoopCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(dir * 0.08, neckY + 0.02, knotZ + 0.12),
-      new THREE.Vector3(dir * 1.15, neckY + 0.24, knotZ + 0.26),
-      new THREE.Vector3(dir * 2.35, neckY - 0.02, knotZ + 0.12),
-      new THREE.Vector3(dir * 2.50, neckY - 0.42, knotZ + 0.02),
-      new THREE.Vector3(dir * 1.70, neckY - 0.58, knotZ + 0.16),
-      new THREE.Vector3(dir * 0.78, neckY - 0.26, knotZ + 0.18),
-      new THREE.Vector3(dir * 0.08, neckY - 0.04, knotZ + 0.12),
-    ], true);
-    createTwistedCord(innerLoopCurve, 48, 0.045, 0.038, 9, ropeMat, ropeGroup, true);
-    curvesForHairs.push(innerLoopCurve);
+    createMultiStrandBraidedCord(loopCurve, 36, strandRadius, plyOffset, 24, ropeMat, bowLooseGroup, true, false);
   });
 
-  // 4. Hai đuôi dây thừng bện xoắn buông rủ tự nhiên
+  // 4. Hai đuôi dây rủ xuống: Đường cong chữ S mềm mại buông rủ theo trọng lực, hơi lượn dọc theo mặt kính
   const leftTail = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.08, neckY - 0.06, knotZ + 0.08),
-    new THREE.Vector3(-0.55, neckY - 0.85, knotZ + 0.48),
-    new THREE.Vector3(-0.98, neckY - 1.95, knotZ + 0.55),
-    new THREE.Vector3(-1.25, neckY - 3.10, knotZ + 0.42),
-  ]);
-  createTwistedCord(leftTail, 42, 0.048, 0.042, 8, ropeMat, ropeGroup, false);
-  curvesForHairs.push(leftTail);
+    new THREE.Vector3(-0.04, -0.04, 0.03),
+    new THREE.Vector3(-0.14, -0.65, 0.06),
+    new THREE.Vector3(-0.28, -1.45, 0.05),
+    new THREE.Vector3(-0.18, -2.25, 0.02),
+    new THREE.Vector3(-0.25, -2.85, 0.01),
+  ], false);
+  createMultiStrandBraidedCord(leftTail, 42, strandRadius, plyOffset, 28, ropeMat, bowLooseGroup, false, true);
 
   const rightTail = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.08, neckY - 0.06, knotZ + 0.08),
-    new THREE.Vector3(0.62, neckY - 0.80, knotZ + 0.45),
-    new THREE.Vector3(1.18, neckY - 1.85, knotZ + 0.48),
-    new THREE.Vector3(1.60, neckY - 2.95, knotZ + 0.32),
-  ]);
-  createTwistedCord(rightTail, 42, 0.048, 0.042, 8, ropeMat, ropeGroup, false);
-  curvesForHairs.push(rightTail);
+    new THREE.Vector3(0.04, -0.04, 0.03),
+    new THREE.Vector3(0.16, -0.70, 0.07),
+    new THREE.Vector3(0.32, -1.55, 0.06),
+    new THREE.Vector3(0.24, -2.35, 0.02),
+    new THREE.Vector3(0.35, -3.05, 0.00),
+  ], false);
+  createMultiStrandBraidedCord(rightTail, 42, strandRadius, plyOffset, 28, ropeMat, bowLooseGroup, false, true);
 
-  // 5. Cấy các sợi lông tơ xù xì và tạo chùm sợi tơ te tua ở đuôi dây
-  const tailEnds = [
-    { endPt: leftTail.getPointAt(1.0), endDir: leftTail.getTangentAt(1.0) },
-    { endPt: rightTail.getPointAt(1.0), endDir: rightTail.getTangentAt(1.0) },
-  ];
-  addFrayedFibers(curvesForHairs, tailEnds, hairMat, ropeGroup);
+  ropeGroup.add(bowLooseGroup);
+  ropeGroup.userData.ropeBowGroup = bowLooseGroup;
 
-  return ropeGroup;
+  return { ropeGroup, bowLooseGroup };
+}
+
+export function animateGlassBottleRope(scene: THREE.Object3D, elapsed: number) {
+  const bowLooseGroup = scene.userData.ropeBowGroup as THREE.Group | undefined;
+  if (!bowLooseGroup) return;
+  bowLooseGroup.rotation.z = Math.sin(elapsed * 1.5) * 0.035;
+  bowLooseGroup.rotation.x = Math.cos(elapsed * 1.2) * 0.025;
 }
 
 export function prepareKeepsakeScene(
@@ -534,12 +451,14 @@ export function prepareKeepsakeScene(
     });
 
     // Thêm sợi dây thừng thắt nơ ở eo cổ chai (tại y = 5.45 + 1.485 = 6.935, bán kính cổ chai = 2.11)
-    const ropeBow = createNeckRopeBow(5.45 + totalDeltaY, 2.11);
+    const { ropeGroup, bowLooseGroup } = createNeckRopeBow(5.45 + totalDeltaY, 2.11);
     if (bottleParentNode) {
-      (bottleParentNode as THREE.Object3D).add(ropeBow);
+      (bottleParentNode as THREE.Object3D).add(ropeGroup);
     } else {
-      cloned.add(ropeBow);
+      cloned.add(ropeGroup);
     }
+    wrapper.userData.ropeBowGroup = bowLooseGroup;
+    cloned.userData.ropeBowGroup = bowLooseGroup;
   }
 
   // 2. CHIẾC VÒNG TAY CỎ 4 LÁ: Tách InterleavedBuffer thành BufferAttribute độc lập + Dây mềm mại lỏng lẻo

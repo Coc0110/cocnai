@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { KeepsakeManifestItem } from '../types/universe';
 import { useUniverseStore } from '../store/useUniverseStore';
-import { prepareKeepsakeScene, animateSuppleBracelet } from '../utils/prepareKeepsakeScene';
+import { prepareKeepsakeScene, animateSuppleBracelet, animateGlassBottleRope } from '../utils/prepareKeepsakeScene';
 
 interface KeepsakeInspectorProps {
   items: KeepsakeManifestItem[];
@@ -132,9 +132,12 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     const finalScale = fitScale * zoomScale;
     modelGroupRef.current.scale.setScalar(finalScale);
 
-    // Đung đưa mềm mại sợi dây vòng tay
+    // Đung đưa mềm mại sợi dây vòng tay và nơ cổ chai
     if (item.id === 'clover-bracelet') {
       animateSuppleBracelet(preparedScene, elapsed);
+    }
+    if (item.id === 'glass-bottle') {
+      animateGlassBottleRope(preparedScene, elapsed);
     }
   });
 
