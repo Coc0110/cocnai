@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
-import { RigidBody, RapierRigidBody } from '@react-three/rapier';
+import { RigidBody, RapierRigidBody, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { KeepsakeManifestItem } from '../types/universe';
 import { useUniverseStore } from '../store/useUniverseStore';
@@ -10,7 +10,9 @@ import {
   prepareKeepsakeScene,
   animateSuppleBracelet,
   animateGlassBottleRope,
+  animateGlassBottleCapsules,
 } from '../utils/prepareKeepsakeScene';
+import { sharedEntityPositions } from '../utils/sharedEntityPositions';
 
 interface KeepsakeItemProps {
   item: KeepsakeManifestItem;
@@ -54,22 +56,53 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const intersectPointRef = useRef<THREE.Vector3>(new THREE.Vector3());
 
+  useEffect(() => {
+    return () => {
+      delete sharedEntityPositions.keepsakes[item.id];
+    };
+  }, [item.id]);
+
   useFrame((state, delta) => {
-    if (!rigidBodyRef.current || isSelected) return;
+    if (!rigidBodyRef.current || isSelected) {
+      if (isSelected) {
+        delete sharedEntityPositions.keepsakes[item.id];
+      }
+      return;
+    }
 
     const elapsed = state.clock.getElapsedTime();
+    const pos = rigidBodyRef.current.translation();
+
+    // Đồng bộ tọa độ toàn cục để các thực thể khác (companions) né tránh
+    if (!sharedEntityPositions.keepsakes[item.id]) {
+      sharedEntityPositions.keepsakes[item.id] = new THREE.Vector3();
+    }
+    sharedEntityPositions.keepsakes[item.id].set(pos.x, pos.y, pos.z);
 
     // 1. Chuyển động trôi lơ lửng rõ rệt trong không gian (khi không bị kéo)
     if (!isDraggingThis) {
-      const pos = rigidBodyRef.current.translation();
       const [ix, iy, iz] = computeGravityWellImpulse([pos.x, pos.y, pos.z], 4.2, 0.35);
-      const fx =
+      let fx =
         Math.sin(elapsed * 0.55 + seed) * 0.14 +
         Math.cos(elapsed * 0.27 + seed * 2.1) * 0.08;
-      const fy =
+      let fy =
         Math.cos(elapsed * 0.48 + seed * 1.7) * 0.12 +
         Math.sin(elapsed * 0.31 + seed) * 0.06;
-      const fz = Math.sin(elapsed * 0.51 + seed * 2.3) * 0.12;
+      let fz = Math.sin(elapsed * 0.51 + seed * 2.3) * 0.12;
+
+      // Đẩy nhẹ ra xa các companions nếu khoảng cách < 1.35
+      Object.values(sharedEntityPositions.companions).forEach((cPos) => {
+        const cdx = pos.x - cPos.x;
+        const cdy = pos.y - cPos.y;
+        const cdz = pos.z - cPos.z;
+        const cdist = Math.hypot(cdx, cdy, cdz);
+        if (cdist > 0.001 && cdist < 1.35) {
+          const repelStrength = ((1.35 - cdist) / 1.35) * 1.8;
+          fx += (cdx / cdist) * repelStrength;
+          fy += (cdy / cdist) * repelStrength;
+          fz += (cdz / cdist) * repelStrength;
+        }
+      });
 
       rigidBodyRef.current.applyImpulse(
         { x: (ix + fx) * delta, y: (iy + fy) * delta, z: (iz + fz) * delta },
@@ -77,11 +110,8 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       );
 
       if (visualGroupRef.current) {
-        visualGroupRef.current.position.set(
-          Math.sin(elapsed * 0.85 + seed) * 0.12,
-          Math.cos(elapsed * 0.95 + seed * 1.3) * 0.12,
-          Math.sin(elapsed * 0.75 + seed * 1.9) * 0.08,
-        );
+        // Visual luôn gắn chặt tâm collider (0, 0, 0), chỉ xoay chuyển nhẹ nhàng
+        visualGroupRef.current.position.set(0, 0, 0);
         visualGroupRef.current.rotation.y += delta * 0.18;
         visualGroupRef.current.rotation.x = Math.sin(elapsed * 0.65 + seed) * 0.14;
         visualGroupRef.current.rotation.z = Math.cos(elapsed * 0.52 + seed * 1.2) * 0.1;
@@ -93,6 +123,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
     }
     if (item.id === 'glass-bottle') {
       animateGlassBottleRope(preparedScene, elapsed);
+      animateGlassBottleCapsules(preparedScene, elapsed, delta);
     }
   });
 
@@ -228,12 +259,13 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   return (
     <RigidBody
       ref={rigidBodyRef}
-      colliders="ball"
+      colliders={false}
       gravityScale={0}
       linearDamping={0.35}
       angularDamping={2.4}
       position={item.initialPosition}
     >
+      <BallCollider args={[item.radius * 1.18]} restitution={0.6} />
       <group
         visible={!isSelected}
         onPointerDown={handlePointerDown}

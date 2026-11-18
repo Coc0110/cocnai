@@ -4,7 +4,12 @@ import { useGLTF, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { KeepsakeManifestItem, LetterItem } from '../types/universe';
 import { useUniverseStore } from '../store/useUniverseStore';
-import { prepareKeepsakeScene, animateSuppleBracelet, animateGlassBottleRope } from '../utils/prepareKeepsakeScene';
+import {
+  prepareKeepsakeScene,
+  animateSuppleBracelet,
+  animateGlassBottleRope,
+  animateGlassBottleCapsules,
+} from '../utils/prepareKeepsakeScene';
 import { ActiveCapsuleUnroller } from './ActiveCapsuleUnroller';
 import lettersData from '../data/letters.json';
 
@@ -42,6 +47,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   const [isCorkOpen, setIsCorkOpen] = useState(false);
   const [activeLetterId, setActiveLetterId] = useState<number | null>(null);
   const [isReadingLetter, setIsReadingLetter] = useState(false);
+  const [isClosingLetter, setIsClosingLetter] = useState(false);
+  const [isReturningToSpace, setIsReturningToSpace] = useState(false);
+
   const selectedCapsuleRef = useRef<THREE.Group | null>(null);
   const [unrollerData, setUnrollerData] = useState<{
     letter: LetterItem;
@@ -52,7 +60,13 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
   const [minVisibleDim, setMinVisibleDim] = useState(3.0);
 
-  const handleCloseLetter = () => {
+  const triggerCloseLetter = () => {
+    if (activeLetterId !== null && !isClosingLetter) {
+      setIsClosingLetter(true);
+    }
+  };
+
+  const handleFinishCloseLetter = () => {
     if (selectedCapsuleRef.current) {
       selectedCapsuleRef.current.visible = true;
       selectedCapsuleRef.current = null;
@@ -60,6 +74,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     setActiveLetterId(null);
     setUnrollerData(null);
     setIsReadingLetter(false);
+    setIsClosingLetter(false);
   };
 
   useEffect(() => {
@@ -71,7 +86,8 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     userRotRef.current = { x: 0, y: 0 };
     setZoomScale(1.0);
     setIsCorkOpen(false);
-    handleCloseLetter();
+    setIsReturningToSpace(false);
+    handleFinishCloseLetter();
   }, [item.id, item.initialPosition, selectedKeepsakeOrigin]);
 
   // Hỗ trợ chụm/tách 2 ngón tay (pinch-to-zoom) mượt mà trên điện thoại
@@ -112,9 +128,39 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   useFrame((state, delta) => {
     if (!rootGroupRef.current || !modelGroupRef.current) return;
 
+    const elapsed = state.clock.getElapsedTime();
+
+    // 1. Xử lý hoạt ảnh "bay" từ Camera quay trở lại tọa độ cũ ngoài không gian (không teleport)
+    if (isReturningToSpace) {
+      const originPos = selectedKeepsakeOrigin
+        ? new THREE.Vector3(...selectedKeepsakeOrigin)
+        : new THREE.Vector3(...item.initialPosition);
+
+      currentWorldPosRef.current.lerp(originPos, Math.min(1, delta * 7.5));
+      userRotRef.current.x = THREE.MathUtils.lerp(userRotRef.current.x, 0, delta * 7.5);
+      userRotRef.current.y = THREE.MathUtils.lerp(userRotRef.current.y, 0, delta * 7.5);
+
+      modelGroupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), Math.min(1, delta * 7.5));
+
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        if (mat) {
+          mat.opacity = THREE.MathUtils.lerp(mat.opacity, 0, delta * 8.0);
+        }
+      }
+
+      rootGroupRef.current.position.copy(currentWorldPosRef.current);
+
+      if (currentWorldPosRef.current.distanceTo(originPos) < 0.06) {
+        clearSelection();
+        setIsReturningToSpace(false);
+      }
+      return;
+    }
+
     const inspectDist = 2.65;
 
-    // 1. Bay mượt về ngay phía trước Camera
+    // 2. Bay mượt về ngay phía trước Camera
     const camDir = new THREE.Vector3();
     state.camera.getWorldDirection(camDir);
     const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(state.camera.quaternion);
@@ -130,8 +176,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       backdropRef.current.quaternion.copy(state.camera.quaternion);
     }
 
-    // 2. Dao động lơ lửng không trọng lực và người dùng tự xoay
-    const elapsed = state.clock.getElapsedTime();
+    // 3. Dao động lơ lửng không trọng lực và người dùng tự xoay
     const floatY = Math.sin(elapsed * 1.7) * 0.045;
     const floatX = Math.cos(elapsed * 1.15) * 0.028;
 
@@ -147,7 +192,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
     modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
 
-    // 3. Tự động co giãn theo khung hình thực tế để KHÔNG BAO GIỜ tràn màn hình
+    // 4. Tự động co giãn theo khung hình thực tế để KHÔNG BAO GIỜ tràn màn hình
     const persp = state.camera as THREE.PerspectiveCamera;
     const fovRad = THREE.MathUtils.degToRad(persp.fov || 50);
     const visibleHeight = 2 * inspectDist * Math.tan(fovRad / 2);
@@ -161,12 +206,13 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     const finalScale = fitScale * zoomScale;
     modelGroupRef.current.scale.setScalar(finalScale);
 
-    // Đung đưa mềm mại sợi dây vòng tay và nơ cổ chai
+    // Đung đưa mềm mại sợi dây vòng tay, nơ cổ chai và các viên nang trong bình
     if (item.id === 'clover-bracelet') {
       animateSuppleBracelet(preparedScene, elapsed);
     }
     if (item.id === 'glass-bottle') {
       animateGlassBottleRope(preparedScene, elapsed);
+      animateGlassBottleCapsules(preparedScene, elapsed, delta);
 
       // Điều khiển nắp nút bần mở / đóng
       const corkNode = preparedScene.userData.corkNode as THREE.Object3D | undefined;
@@ -222,6 +268,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     });
     setActiveLetterId(capId);
     setIsReadingLetter(false);
+    setIsClosingLetter(false);
   };
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -310,15 +357,18 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
   return (
     <>
-      {/* Dimmed backdrop plane: tapping outside dismisses letter reading or inspection */}
+      {/* Dimmed backdrop plane: tapping outside dismisses letter reading or returns keepsake to space */}
       <mesh
         ref={backdropRef}
         onPointerDown={(e) => {
           e.stopPropagation();
           if (activeLetterId !== null) {
-            handleCloseLetter();
-          } else {
-            clearSelection();
+            triggerCloseLetter();
+          } else if (!isReturningToSpace) {
+            if (item.id === 'glass-bottle' && isCorkOpen) {
+              setIsCorkOpen(false);
+            }
+            setIsReturningToSpace(true);
           }
         }}
       >
@@ -355,21 +405,23 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
             localStartQuat={unrollerData.localStartQuat}
             localMouthPos={unrollerData.localMouthPos}
             minVisibleDim={minVisibleDim}
-            onClose={handleCloseLetter}
+            isClosing={isClosingLetter}
+            onFinishClose={handleFinishCloseLetter}
             onReadingReady={() => setIsReadingLetter(true)}
+            onRequestClose={triggerCloseLetter}
           />
         )}
       </group>
 
       {/* HTML UI Overlay: Hướng dẫn mở nắp / chọn thư và nút đóng */}
       <Html fullscreen style={{ pointerEvents: 'none' }}>
-        {item.id === 'glass-bottle' && !isCorkOpen && activeLetterId === null && (
+        {item.id === 'glass-bottle' && !isCorkOpen && activeLetterId === null && !isReturningToSpace && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-200 border border-amber-400/30 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none animate-pulse">
             <span>💡</span> Chạm vào nút bần để mở nắp lọ
           </div>
         )}
 
-        {item.id === 'glass-bottle' && isCorkOpen && activeLetterId === null && (
+        {item.id === 'glass-bottle' && isCorkOpen && activeLetterId === null && !isReturningToSpace && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-300 border border-amber-400/40 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none">
             <span>✨</span> Chọn 1 viên nang trong lọ để mở thư
           </div>
@@ -377,7 +429,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
         {activeLetterId !== null && isReadingLetter && (
           <button
-            onClick={handleCloseLetter}
+            onClick={triggerCloseLetter}
             style={{ pointerEvents: 'auto' }}
             className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2.5 rounded-full bg-slate-950/90 text-amber-200 border border-amber-400/50 shadow-2xl text-sm font-medium backdrop-blur-md flex items-center gap-2 hover:bg-slate-900 hover:text-amber-100 transition-all cursor-pointer active:scale-95"
           >

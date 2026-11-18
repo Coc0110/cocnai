@@ -396,9 +396,16 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   scrollRoll.name = 'scrollRoll';
 
   const outerGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.94, 24, 1, true);
-  const backTex = getBackTexture(letter.backDesign);
+  const rawBackTex = getBackTexture(letter.backDesign);
+  const rollBackTex = rawBackTex.clone();
+  rollBackTex.wrapS = THREE.RepeatWrapping;
+  rollBackTex.wrapT = THREE.ClampToEdgeWrapping;
+  rollBackTex.repeat.set(0.28, 1.0);
+  rollBackTex.offset.set(0.15, 0);
+  rollBackTex.needsUpdate = true;
+
   const outerMat = new THREE.MeshStandardMaterial({
-    map: backTex,
+    map: rollBackTex,
     roughness: 0.8,
     metalness: 0.05,
     side: THREE.FrontSide,
@@ -452,15 +459,15 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   goldRing.position.y = 0;
   capsule.add(goldRing);
 
-  // 3. Nửa vỏ nhựa trong suốt phía trên (topShell) và phía dưới (bottomShell)
+  // 3. Nửa vỏ nhựa dày và đục hơn (nhựa mờ chất lượng cao)
   const plasticMatTop = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color('#ffffff'),
+    color: new THREE.Color('#f1f5f9'),
     transparent: true,
-    opacity: 0.24,
-    roughness: 0.08,
-    transmission: 0.65,
+    opacity: 0.45,
+    roughness: 0.22,
+    transmission: 0.35,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.1,
+    clearcoatRoughness: 0.12,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
@@ -475,8 +482,8 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   topCylMesh.position.y = 0.19;
   topShell.add(topCylMesh);
 
-  // Gờ nối nhẹ ở khớp giữa
-  const topLipGeo = new THREE.TorusGeometry(0.238, 0.012, 8, 24);
+  // Gờ nối dày dặn ở khớp giữa
+  const topLipGeo = new THREE.TorusGeometry(0.238, 0.022, 12, 28);
   const topLipMesh = new THREE.Mesh(topLipGeo, plasticMatTop);
   topLipMesh.rotation.x = Math.PI / 2;
   topLipMesh.position.y = 0.01;
@@ -502,7 +509,91 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   bottomShell.add(botDomeMesh);
   capsule.add(bottomShell);
 
+  // Tăng kích thước viên nang lên 1.5x
+  capsule.scale.setScalar(1.5);
+
   return capsule;
+}
+
+// Chuyển động trôi nổi và giải va chạm tách các viên nang không chồng đè nhau
+export function animateGlassBottleCapsules(root: THREE.Object3D, elapsed: number, _delta: number) {
+  const capsules = (root.userData.capsules as THREE.Group[]) || [];
+  if (!capsules || capsules.length === 0) return;
+
+  // 1. Dao động bập bềnh nhẹ quanh vị trí ban đầu
+  for (let i = 0; i < capsules.length; i++) {
+    const cap = capsules[i];
+    if (!cap.visible) continue;
+    const initP = cap.userData.initialPosition as THREE.Vector3;
+    const initR = cap.userData.initialRotation as THREE.Euler;
+    if (!initP) continue;
+
+    const seed = (i + 1) * 1.618;
+    const floatY = Math.sin(elapsed * 1.1 + seed * 1.7) * 0.06;
+    const floatX = Math.cos(elapsed * 0.85 + seed * 2.3) * 0.035;
+    const floatZ = Math.sin(elapsed * 0.95 + seed * 2.9) * 0.035;
+
+    cap.position.set(
+      initP.x + floatX,
+      initP.y + floatY,
+      initP.z + floatZ,
+    );
+
+    if (initR) {
+      cap.rotation.x = initR.x + Math.sin(elapsed * 0.75 + seed) * 0.05;
+      cap.rotation.z = initR.z + Math.cos(elapsed * 0.65 + seed * 1.4) * 0.05;
+      cap.rotation.y = initR.y + Math.sin(elapsed * 0.45 + seed * 0.9) * 0.07;
+    }
+  }
+
+  // 2. Giải va chạm (Sphere Separation) giữa các cặp viên nang (minDist = 0.66)
+  const minDist = 0.66;
+  const minDistSq = minDist * minDist;
+  const len = capsules.length;
+
+  for (let iter = 0; iter < 2; iter++) {
+    for (let i = 0; i < len; i++) {
+      if (!capsules[i].visible) continue;
+      const pA = capsules[i].position;
+      for (let j = i + 1; j < len; j++) {
+        if (!capsules[j].visible) continue;
+        const pB = capsules[j].position;
+        const dx = pB.x - pA.x;
+        const dy = pB.y - pA.y;
+        const dz = pB.z - pA.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+
+        if (distSq < minDistSq && distSq > 0.0001) {
+          const dist = Math.sqrt(distSq);
+          const overlap = (minDist - dist) * 0.5;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const nz = dz / dist;
+
+          pA.x -= nx * overlap;
+          pA.y -= ny * overlap;
+          pA.z -= nz * overlap;
+
+          pB.x += nx * overlap;
+          pB.y += ny * overlap;
+          pB.z += nz * overlap;
+        }
+      }
+    }
+
+    // 3. Kẹp (clamp) nằm gọn trong lòng bình: r <= 1.38, 1.35 <= y <= 5.25
+    for (let i = 0; i < len; i++) {
+      if (!capsules[i].visible) continue;
+      const p = capsules[i].position;
+      const r = Math.hypot(p.x, p.z);
+      if (r > 1.38) {
+        const factor = 1.38 / r;
+        p.x *= factor;
+        p.z *= factor;
+      }
+      p.y = Math.min(5.25, Math.max(1.35, p.y));
+    }
+  }
 }
 
 // Xếp 31 viên nang thành 5 tầng tự nhiên trong lòng thân bình (y: 1.15 -> 4.75, r <= 1.55)

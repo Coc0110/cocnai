@@ -3,6 +3,7 @@ import { useFrame, useThree, ThreeEvent } from '@react-three/fiber';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import * as THREE from 'three';
 import { useUniverseStore } from '../store/useUniverseStore';
+import { sharedEntityPositions } from '../utils/sharedEntityPositions';
 
 // =============================================================================
 // CẤU HÌNH VÀ BỘ BIẾN TẠM TOÀN CỤC (TRÁNH RÁC BỘ NHỚ TRÊN TỪNG FRAME)
@@ -582,6 +583,10 @@ function CompanionEntity({
 
     // Cập nhật tọa độ ra ref dùng chung
     myPosRef.current.copy(curPos);
+    if (!sharedEntityPositions.companions[id]) {
+      sharedEntityPositions.companions[id] = new THREE.Vector3();
+    }
+    sharedEntityPositions.companions[id].copy(curPos);
 
     // =========================================================================
     // 1. HỆ THỐNG MẮT: LIẾC NHẸ, CHỚP MẮT, NGỦ NHẮM MẮT & CƯỜI TÍT MẮT
@@ -699,6 +704,45 @@ function CompanionEntity({
       }
       return;
     }
+
+    // =========================================================================
+    // 2.5. PHẢN LỰC ĐẨY TÁCH TRÁNH ĐÈ LÊN NHAU VÀ TRÁNH VA CHẠM KỶ VẬT
+    // =========================================================================
+    // Tránh va chạm giữa 2 bạn đồng hành khi không trong trạng thái gặp gỡ (dist2D < 0.95)
+    const other = otherPosRef.current;
+    if (Math.abs(other.y - curPos.y) < 0.8) {
+      const cdx = curPos.x - other.x;
+      const cdz = curPos.z - other.z;
+      const cdist2D = Math.hypot(cdx, cdz);
+      if (cdist2D > 0.001 && cdist2D < 0.95) {
+        const push = (0.95 - cdist2D) * Math.min(1, delta * 3.5);
+        curPos.x += (cdx / cdist2D) * push;
+        curPos.z += (cdz / cdist2D) * push;
+      }
+    }
+
+    // Tránh va chạm với các kỷ vật trôi nổi trong không gian (dist < 1.35)
+    Object.values(sharedEntityPositions.keepsakes).forEach((kPos) => {
+      const kdx = curPos.x - kPos.x;
+      const kdy = curPos.y - kPos.y;
+      const kdz = curPos.z - kPos.z;
+      const kdist = Math.hypot(kdx, kdy, kdz);
+      if (kdist > 0.001 && kdist < 1.35) {
+        const kpush = (1.35 - kdist) * Math.min(1, delta * 4.0);
+        const distXZ = Math.hypot(kdx, kdz);
+        if (distXZ > 0.01) {
+          curPos.x += (kdx / distXZ) * kpush;
+          curPos.z += (kdz / distXZ) * kpush;
+        } else {
+          curPos.x += (Math.random() - 0.5) * kpush;
+          curPos.z += (Math.random() - 0.5) * kpush;
+        }
+      }
+    });
+
+    curPos.x = THREE.MathUtils.clamp(curPos.x, -3.8, 3.8);
+    curPos.z = THREE.MathUtils.clamp(curPos.z, -3.0, 2.6);
+    groupRef.current.position.copy(curPos);
 
     // =========================================================================
     // 3. MÁY TRẠNG THÁI DEERLING (ĐỨNG NGHỈ, CUỘN MÌNH NGỦ, ĐI BỘ, NHẢY TẦNG, ĂN CỎ)
