@@ -46,7 +46,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   // Trạng thái mở nắp lọ và viên nang đang đọc
   const [isCorkOpen, setIsCorkOpen] = useState(false);
   const [activeLetterId, setActiveLetterId] = useState<number | null>(null);
-  const [isReadingLetter, setIsReadingLetter] = useState(false);
   const [isClosingLetter, setIsClosingLetter] = useState(false);
   const [isReturningToSpace, setIsReturningToSpace] = useState(false);
 
@@ -56,6 +55,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     localStartPos: THREE.Vector3;
     localStartQuat: THREE.Quaternion;
     localMouthPos: THREE.Vector3;
+    startHolderScale: number;
   } | null>(null);
 
   const [minVisibleDim, setMinVisibleDim] = useState(3.0);
@@ -73,7 +73,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     }
     setActiveLetterId(null);
     setUnrollerData(null);
-    setIsReadingLetter(false);
     setIsClosingLetter(false);
   };
 
@@ -158,7 +157,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       return;
     }
 
-    const inspectDist = 2.65;
+    const inspectDist = item.id === 'glass-bottle' ? 2.45 : 2.65;
 
     // 2. Bay mượt về ngay phía trước Camera
     const camDir = new THREE.Vector3();
@@ -202,7 +201,8 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     setMinVisibleDim(currentMinDim);
 
     const baseTargetSize = (item.radius || 0.65) * (item.id === 'glass-bottle' ? 2.5 : 2.1);
-    const fitScale = (currentMinDim * 0.56) / baseTargetSize;
+    const fitScaleFactor = item.id === 'glass-bottle' ? 0.76 : 0.56;
+    const fitScale = (currentMinDim * fitScaleFactor) / baseTargetSize;
     const finalScale = fitScale * zoomScale;
     modelGroupRef.current.scale.setScalar(finalScale);
 
@@ -254,6 +254,11 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     }
     const localMouthPos = rootGroupRef.current.worldToLocal(mouthWorldPos);
 
+    // Tỷ lệ scale thực tế của viên nang trong bình so với rootGroupRef
+    const capWorldScale = targetCapsule.getWorldScale(new THREE.Vector3());
+    const rootWorldScale = rootGroupRef.current.getWorldScale(new THREE.Vector3());
+    const startHolderScale = capWorldScale.x / (rootWorldScale.x || 1);
+
     targetCapsule.visible = false;
     selectedCapsuleRef.current = targetCapsule;
 
@@ -265,9 +270,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       localStartPos,
       localStartQuat,
       localMouthPos,
+      startHolderScale,
     });
     setActiveLetterId(capId);
-    setIsReadingLetter(false);
     setIsClosingLetter(false);
   };
 
@@ -404,16 +409,16 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
             localStartPos={unrollerData.localStartPos}
             localStartQuat={unrollerData.localStartQuat}
             localMouthPos={unrollerData.localMouthPos}
+            startHolderScale={unrollerData.startHolderScale}
             minVisibleDim={minVisibleDim}
             isClosing={isClosingLetter}
             onFinishClose={handleFinishCloseLetter}
-            onReadingReady={() => setIsReadingLetter(true)}
             onRequestClose={triggerCloseLetter}
           />
         )}
       </group>
 
-      {/* HTML UI Overlay: Hướng dẫn mở nắp / chọn thư và nút đóng */}
+      {/* HTML UI Overlay: Hướng dẫn mở nắp / chọn thư */}
       <Html fullscreen style={{ pointerEvents: 'none' }}>
         {item.id === 'glass-bottle' && !isCorkOpen && activeLetterId === null && !isReturningToSpace && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-200 border border-amber-400/30 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none animate-pulse">
@@ -425,16 +430,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-300 border border-amber-400/40 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none">
             <span>✨</span> Chọn 1 viên nang trong lọ để mở thư
           </div>
-        )}
-
-        {activeLetterId !== null && isReadingLetter && (
-          <button
-            onClick={triggerCloseLetter}
-            style={{ pointerEvents: 'auto' }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2.5 rounded-full bg-slate-950/90 text-amber-200 border border-amber-400/50 shadow-2xl text-sm font-medium backdrop-blur-md flex items-center gap-2 hover:bg-slate-900 hover:text-amber-100 transition-all cursor-pointer active:scale-95"
-          >
-            <span>✕</span> Thu thư lại vào lọ
-          </button>
         )}
       </Html>
     </>
