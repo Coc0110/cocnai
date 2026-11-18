@@ -13,6 +13,7 @@ import {
   animateGlassBottleCapsules,
 } from '../utils/prepareKeepsakeScene';
 import { sharedEntityPositions } from '../utils/sharedEntityPositions';
+import { requestDeviceMotionPermission } from '../utils/deviceMotionPermission';
 
 interface KeepsakeItemProps {
   item: KeepsakeManifestItem;
@@ -231,6 +232,9 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
 
       if (distPx < 8) {
         // Chạm tĩnh (click) -> Chọn vật phẩm để bay về phía trước ống kính
+        if (item.id === 'glass-bottle') {
+          requestDeviceMotionPermission();
+        }
         selectKeepsake(item.id, [pos.x, pos.y, pos.z]);
       } else if (rigidBodyRef.current) {
         // Nhả kéo -> Tiếp tục trôi theo đà vận tốc

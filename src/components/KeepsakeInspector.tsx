@@ -11,6 +11,7 @@ import {
   animateGlassBottleCapsules,
 } from '../utils/prepareKeepsakeScene';
 import { ActiveCapsuleUnroller } from './ActiveCapsuleUnroller';
+import { requestDeviceMotionPermission } from '../utils/deviceMotionPermission';
 import lettersData from '../data/letters.json';
 
 interface KeepsakeInspectorProps {
@@ -48,6 +49,21 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   const [activeLetterId, setActiveLetterId] = useState<number | null>(null);
   const [isClosingLetter, setIsClosingLetter] = useState(false);
   const [isReturningToSpace, setIsReturningToSpace] = useState(false);
+
+  // Cảm biến chuyển động và vuốt nút bần
+  const shakeImpulseRef = useRef(0);
+  const lastAccRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const lastActionTimeRef = useRef<number>(0);
+  const upsideDownStartRef = useRef<number | null>(null);
+  const pointerDownOnCorkRef = useRef(false);
+
+  // Đồng bộ ref để tránh stale closure trong devicemotion & setTimeout
+  const isCorkOpenRef = useRef(isCorkOpen);
+  isCorkOpenRef.current = isCorkOpen;
+  const activeLetterIdRef = useRef(activeLetterId);
+  activeLetterIdRef.current = activeLetterId;
+  const isClosingLetterRef = useRef(isClosingLetter);
+  isClosingLetterRef.current = isClosingLetter;
 
   const selectedCapsuleRef = useRef<THREE.Group | null>(null);
   const [unrollerData, setUnrollerData] = useState<{
@@ -194,6 +210,14 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
     modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
 
+    // Hiệu ứng rung lắc thân bình khi người dùng lắc điện thoại
+    modelGroupRef.current.position.x = 0;
+    if (shakeImpulseRef.current > 0.001) {
+      modelGroupRef.current.position.x += Math.sin(elapsed * 42) * shakeImpulseRef.current * 0.08;
+      modelGroupRef.current.rotation.z += Math.cos(elapsed * 38) * shakeImpulseRef.current * 0.06;
+      shakeImpulseRef.current = THREE.MathUtils.damp(shakeImpulseRef.current, 0, 5, delta);
+    }
+
     // Tách biệt độ sâu Z: Khi đang mở/đọc thư hoặc đóng thư, giữ lọ thủy tinh lùi về phía sau (-1.15)
     if (item.id === 'glass-bottle') {
       const targetBottleZ = activeLetterId !== null ? -1.15 : 0;
@@ -293,12 +317,104 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     setIsClosingLetter(false);
   };
 
+  // Lắng nghe sự kiện cảm biến chuyển động devicemotion trên thiết bị di động
+  useEffect(() => {
+    if (item.id !== 'glass-bottle' || isReturningToSpace) return;
+
+    const handleDeviceMotion = (e: DeviceMotionEvent) => {
+      if (!e.accelerationIncludingGravity) return;
+      const ax = e.accelerationIncludingGravity.x ?? 0;
+      const ay = e.accelerationIncludingGravity.y ?? 0;
+      const az = e.accelerationIncludingGravity.z ?? 0;
+
+      const now = performance.now();
+      if (!lastAccRef.current) {
+        lastAccRef.current = { x: ax, y: ay, z: az };
+        return;
+      }
+
+      const deltaAcc = Math.hypot(
+        ax - lastAccRef.current.x,
+        ay - lastAccRef.current.y,
+        az - lastAccRef.current.z,
+      );
+      lastAccRef.current = { x: ax, y: ay, z: az };
+
+      // Trường hợp A — Lắc điện thoại (deltaAcc > 16 và đã qua cooldown 950ms)
+      if (deltaAcc > 16 && now - lastActionTimeRef.current > 950) {
+        shakeImpulseRef.current = 1.0;
+        lastActionTimeRef.current = now;
+
+        if (!isCorkOpenRef.current) {
+          setIsCorkOpen(true);
+        } else if (activeLetterIdRef.current === null && !isClosingLetterRef.current) {
+          setTimeout(() => {
+            if (
+              activeLetterIdRef.current === null &&
+              !isClosingLetterRef.current &&
+              isCorkOpenRef.current
+            ) {
+              const randomId = Math.floor(Math.random() * 31) + 1;
+              selectCapsuleToOpen(randomId);
+            }
+          }, 320);
+        }
+      }
+
+      // Trường hợp B — Dốc ngược điện thoại (acc.y > 5.8, tức đầu điện thoại chúc xuống đất)
+      if (ay > 5.8) {
+        if (upsideDownStartRef.current === null) {
+          upsideDownStartRef.current = now;
+        } else if (now - upsideDownStartRef.current >= 250) {
+          if (
+            isCorkOpenRef.current &&
+            activeLetterIdRef.current === null &&
+            !isClosingLetterRef.current &&
+            now - lastActionTimeRef.current > 1200
+          ) {
+            shakeImpulseRef.current = 0.6;
+            lastActionTimeRef.current = now;
+            upsideDownStartRef.current = null;
+            const randomId = Math.floor(Math.random() * 31) + 1;
+            selectCapsuleToOpen(randomId);
+          }
+        }
+      } else {
+        upsideDownStartRef.current = null;
+      }
+    };
+
+    window.addEventListener('devicemotion', handleDeviceMotion);
+    return () => {
+      window.removeEventListener('devicemotion', handleDeviceMotion);
+    };
+  }, [item.id, isReturningToSpace]);
+
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     setIsDragging(true);
     pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+
+    // Kiểm tra nếu chạm vào nút bần
+    if (item.id === 'glass-bottle') {
+      const corkNode = preparedScene.userData.corkNode as THREE.Object3D | undefined;
+      let hitCork = false;
+      if (corkNode) {
+        hitCork = (e.intersections || []).some((hit) => {
+          let cur: THREE.Object3D | null = hit.object;
+          while (cur && cur !== preparedScene) {
+            if (cur === corkNode) return true;
+            cur = cur.parent;
+          }
+          return false;
+        });
+      }
+      pointerDownOnCorkRef.current = hitCork;
+    } else {
+      pointerDownOnCorkRef.current = false;
+    }
   };
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -306,6 +422,14 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     e.stopPropagation();
 
     if (activeLetterId !== null) return;
+
+    // Nếu đang bắt đầu thao tác trên nút bần và vuốt lên trên, không xoay thân bình
+    if (pointerDownOnCorkRef.current) {
+      const dy = e.clientY - pointerDownPosRef.current.y;
+      if (dy < -6) {
+        return;
+      }
+    }
 
     const dx = e.clientX - lastPointerRef.current.x;
     const dy = e.clientY - lastPointerRef.current.y;
@@ -326,18 +450,19 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         // Safe fallback
       }
 
+      const deltaY = e.clientY - pointerDownPosRef.current.y;
       const dragDist = Math.hypot(
         e.clientX - pointerDownPosRef.current.x,
-        e.clientY - pointerDownPosRef.current.y,
+        deltaY,
       );
 
-      // Nhận diện cú click/chạm tĩnh (< 8px)
-      if (dragDist < 8 && item.id === 'glass-bottle' && activeLetterId === null) {
+      // Nhận diện cú click hoặc vuốt trên nút bần / chọn viên nang
+      if (item.id === 'glass-bottle' && activeLetterId === null) {
         const corkNode = preparedScene.userData.corkNode as THREE.Object3D | undefined;
 
-        // 1. Kiểm tra bấm trúng nút bần
-        let hitCork = false;
-        if (corkNode) {
+        // 1. Kiểm tra thao tác trên nút bần: nhấn thả tại chỗ (< 8px) HOẶC vuốt lên trên (deltaY < -12px)
+        let hitCork = pointerDownOnCorkRef.current;
+        if (!hitCork && corkNode && dragDist < 8) {
           hitCork = (e.intersections || []).some((hit) => {
             let cur: THREE.Object3D | null = hit.object;
             while (cur && cur !== preparedScene) {
@@ -349,12 +474,22 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         }
 
         if (hitCork) {
-          setIsCorkOpen((prev) => !prev);
-          return;
+          if (dragDist < 8) {
+            requestDeviceMotionPermission();
+            setIsCorkOpen((prev) => !prev);
+            pointerDownOnCorkRef.current = false;
+            return;
+          } else if (deltaY < -12) {
+            requestDeviceMotionPermission();
+            setIsCorkOpen(true);
+            pointerDownOnCorkRef.current = false;
+            return;
+          }
         }
+        pointerDownOnCorkRef.current = false;
 
         // 2. Khi nắp đã mở, kiểm tra bấm trúng 1 trong 31 viên nang
-        if (isCorkOpen) {
+        if (isCorkOpen && dragDist < 8) {
           for (const hit of e.intersections || []) {
             let cur: THREE.Object3D | null = hit.object;
             while (cur && cur !== preparedScene) {
@@ -441,13 +576,13 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       <Html fullscreen style={{ pointerEvents: 'none' }}>
         {item.id === 'glass-bottle' && !isCorkOpen && activeLetterId === null && !isReturningToSpace && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-200 border border-amber-400/30 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none animate-pulse">
-            <span>💡</span> Chạm vào nút bần để mở nắp lọ
+            <span>💡</span> Chạm / Vuốt lên nút bần hoặc Lắc để mở nắp lọ
           </div>
         )}
 
         {item.id === 'glass-bottle' && isCorkOpen && activeLetterId === null && !isReturningToSpace && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-300 border border-amber-400/40 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none">
-            <span>✨</span> Chọn 1 viên nang trong lọ để mở thư
+            <span>✨</span> Chạm viên thuốc hoặc Lắc / Dốc ngược lọ để mở thư
           </div>
         )}
       </Html>
