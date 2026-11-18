@@ -178,6 +178,110 @@ const _charmRotLever = new THREE.Vector3();
 const _charmTargetTrail = new THREE.Vector3();
 const _leverArm = new THREE.Vector3(0, -0.35, 0);
 
+/**
+ * Xử lý texture qua canvas để chuyển đổi bảng màu sang tông Pastel tươi sáng, ngọt ngào:
+ * - Cánh hoa & tua rua: Hồng phấn pastel (#f7b3c4)
+ * - Đài sen: Xanh lá nhung non (#76ab52)
+ * - Thỏ bông & ngọc: Trắng kem bông tuyết (#fffaf6)
+ * - Nhụy hoa & đèn: Vàng ấm rạng rỡ (#ffe680)
+ */
+function createPastelVelvetTexture(origMap: THREE.Texture): THREE.CanvasTexture | null {
+  if (origMap.userData?.gradedTex) {
+    return origMap.userData.gradedTex as THREE.CanvasTexture;
+  }
+  if (typeof document === 'undefined') return null;
+
+  const img = origMap.image as HTMLImageElement | ImageBitmap | HTMLCanvasElement | undefined;
+  if (!img) return null;
+
+  const w = (img as HTMLImageElement).naturalWidth || img.width || 1024;
+  const h = (img as HTMLImageElement).naturalHeight || img.height || 1024;
+  if (!w || !h) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  try {
+    ctx.drawImage(img as CanvasImageSource, 0, 0, w, h);
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+    const len = data.length;
+
+    for (let i = 0; i < len; i += 4) {
+      let r = data[i];
+      let g = data[i + 1];
+      let b = data[i + 2];
+      const a = data[i + 3];
+      if (a < 5) continue;
+
+      // 1. Nhóm nhụy hoa & đèn đom đóm màu vàng (khi r > 130 && g > 110 && b < 105)
+      if (r > 130 && g > 110 && b < 105) {
+        // Nâng lên vàng ấm rạng rỡ (#ffe680 ~ 255, 230, 128)
+        r = r * 0.35 + 255 * 0.65;
+        g = g * 0.35 + 230 * 0.65;
+        b = b * 0.35 + 128 * 0.65;
+        r = Math.pow(r / 255, 0.75) * 255;
+        g = Math.pow(g / 255, 0.75) * 255;
+        b = Math.pow(b / 255, 0.75) * 255;
+      }
+      // 2. Nhóm cánh hoa & tua rua màu hồng (khi r > g * 1.12 && r >= b)
+      else if (r > g * 1.12 && r >= b) {
+        // Pha trộn (r, g, b) với (250, 182, 200) theo tỉ lệ 55% và nâng gamma sáng 0.72
+        r = r * 0.45 + 250 * 0.55;
+        g = g * 0.45 + 182 * 0.55;
+        b = b * 0.45 + 200 * 0.55;
+        r = Math.pow(r / 255, 0.72) * 255;
+        g = Math.pow(g / 255, 0.72) * 255;
+        b = Math.pow(b / 255, 0.72) * 255;
+      }
+      // 3. Nhóm đài sen màu xanh lá (khi g > r * 1.04 && g > b)
+      else if (g > r * 1.04 && g > b) {
+        // Pha trộn với (125, 178, 88) theo tỉ lệ 50% và nâng gamma sáng 0.78
+        r = r * 0.50 + 125 * 0.50;
+        g = g * 0.50 + 178 * 0.50;
+        b = b * 0.50 + 88 * 0.50;
+        r = Math.pow(r / 255, 0.78) * 255;
+        g = Math.pow(g / 255, 0.78) * 255;
+        b = Math.pow(b / 255, 0.78) * 255;
+      }
+      // 4. Nhóm chú thỏ bông & ngọc treo màu xám/trắng (khi Math.abs(r - g) < 28 && Math.abs(g - b) < 28 && r > 85)
+      else if (Math.abs(r - g) < 28 && Math.abs(g - b) < 28 && r > 85) {
+        // Nâng từ xám tối lên trắng kem bông tuyết (#fffaf6 ~ 255, 250, 246) theo tỉ lệ 65%
+        r = r * 0.35 + 255 * 0.65;
+        g = g * 0.35 + 250 * 0.65;
+        b = b * 0.35 + 246 * 0.65;
+        r = Math.pow(r / 255, 0.75) * 255;
+        g = Math.pow(g / 255, 0.75) * 255;
+        b = Math.pow(b / 255, 0.75) * 255;
+      }
+
+      data[i] = Math.min(255, Math.max(0, Math.round(r)));
+      data[i + 1] = Math.min(255, Math.max(0, Math.round(g)));
+      data[i + 2] = Math.min(255, Math.max(0, Math.round(b)));
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const gradedTex = new THREE.CanvasTexture(canvas);
+    gradedTex.colorSpace = THREE.SRGBColorSpace;
+    gradedTex.flipY = origMap.flipY;
+    gradedTex.wrapS = origMap.wrapS;
+    gradedTex.wrapT = origMap.wrapT;
+    gradedTex.repeat.copy(origMap.repeat);
+    gradedTex.needsUpdate = true;
+
+    if (!origMap.userData) origMap.userData = {};
+    origMap.userData.gradedTex = gradedTex;
+    return gradedTex;
+  } catch (err) {
+    console.warn('[HangingCharm] Failed to grade texture via canvas:', err);
+    return null;
+  }
+}
+
 // Cập nhật hiệu ứng sợi dây phía dưới uốn lượn chữ S trong không trọng lực và kéo trễ quán tính
 export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number, delta = 0.016): void {
   let mesh = scene.userData.charmMesh as THREE.Mesh | undefined;
@@ -234,10 +338,10 @@ export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number
     -(_charmWorldDelta.y * 1.5 + _charmRotLever.y * 1.2) / dt,
     -(_charmWorldDelta.z * 2.2 + _charmRotLever.z * 1.8) / dt,
   );
-  _charmTargetTrail.clampLength(0, 0.48);
+  _charmTargetTrail.clampLength(0, 0.26);
 
   trailOffset.lerp(_charmTargetTrail, Math.min(1, delta * 9.0));
-  trailOffset.clampLength(0, 0.48);
+  trailOffset.clampLength(0, 0.26);
 
   lastWorldPos.copy(_curCharmWorldPos);
   lastWorldQuat.copy(_curCharmWorldQuat);
@@ -252,13 +356,13 @@ export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number
     const y0 = stringOrigCoords[cIdx + 1];
     const z0 = stringOrigCoords[cIdx + 2];
 
-    const s = Math.min(1, Math.max(0, (0.28 - y0) / 1.28));
+    const s = Math.min(1, Math.max(0, (0.165 - y0) / 0.665));
     const w = Math.pow(s, 1.45);
 
     // Uốn lượn chữ S không trọng lực (không duỗi thẳng):
-    const waveX = w * 0.11 * Math.sin(elapsed * 1.6 - s * 4.2) + s * (1 - s) * 0.075 * Math.cos(elapsed * 2.2);
-    const waveZ = w * 0.095 * Math.cos(elapsed * 1.4 - s * 3.8) + s * (1 - s) * 0.065 * Math.sin(elapsed * 1.9);
-    const slackY = w * (0.095 + 0.035 * Math.sin(elapsed * 1.8 + s * 3.5));
+    const waveX = w * 0.055 * Math.sin(elapsed * 1.6 - s * 4.2) + s * (1 - s) * 0.038 * Math.cos(elapsed * 2.2);
+    const waveZ = w * 0.048 * Math.cos(elapsed * 1.4 - s * 3.8) + s * (1 - s) * 0.032 * Math.sin(elapsed * 1.9);
+    const slackY = w * (0.048 + 0.018 * Math.sin(elapsed * 1.8 + s * 3.5));
 
     // Cộng quán tính bị kéo theo (trailOffset) và bù chiều dài dây khi bị kéo ngang:
     const dx = waveX + trailOffset.x * w;
@@ -1073,7 +1177,7 @@ export function prepareKeepsakeScene(
     });
   }
 
-  // 4. KỶ VẬT TREO LƠ LỬNG (hanging-charm): Tách InterleavedBuffer, lọc đỉnh sợi dây phía dưới (y0 < 0.28)
+  // 4. KỶ VẬT TREO LƠ LỬNG (hanging-charm): Tách InterleavedBuffer, tạo chất liệu nhung Pastel, lọc đỉnh dây (y0 < 0.165)
   if (item.id === 'hanging-charm') {
     cloned.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
@@ -1115,8 +1219,8 @@ export function prepareKeepsakeScene(
           geo = srcGeo.clone();
         }
 
-        // Lọc trước danh sách các đỉnh thuộc sợi dây phía dưới (y0 < 0.28)
-        const yTop = 0.28;
+        // Lọc trước danh sách các đỉnh thuộc sợi dây phía dưới (y0 < 0.165)
+        const yTop = 0.165;
         const stringIndicesArr: number[] = [];
         const stringCoordsArr: number[] = [];
 
@@ -1137,26 +1241,46 @@ export function prepareKeepsakeScene(
         wrapper.userData.charmMesh = mesh;
         cloned.userData.charmMesh = mesh;
 
+        // Tạo chất liệu Vải Nhung (Velvet/Plush) lì mịn, không bóng nhựa
         const oldMat = mesh.material as THREE.MeshStandardMaterial;
-        if (oldMat?.map) {
-          oldMat.map.colorSpace = THREE.SRGBColorSpace;
-          oldMat.map.needsUpdate = true;
-          mesh.material = new THREE.MeshStandardMaterial({
-            map: oldMat.map,
-            roughnessMap: oldMat.roughnessMap || null,
-            metalnessMap: oldMat.metalnessMap || null,
-            roughness: 0.45,
-            metalness: 0.08,
-            side: THREE.DoubleSide,
-          });
-        } else {
-          mesh.material = new THREE.MeshStandardMaterial({
-            color: '#fce7f3',
-            roughness: 0.45,
-            metalness: 0.08,
-            side: THREE.DoubleSide,
-          });
+        const origMap = oldMat?.map || null;
+        let gradedTex: THREE.CanvasTexture | null = null;
+        if (origMap) {
+          gradedTex = createPastelVelvetTexture(origMap);
         }
+
+        const velvetMat = new THREE.MeshPhysicalMaterial({
+          map: gradedTex || origMap,
+          emissiveMap: gradedTex || origMap,
+          emissive: new THREE.Color('#fff5f8'),
+          emissiveIntensity: 0.34,
+          roughness: 0.96,
+          metalness: 0.0,
+          roughnessMap: null,
+          metalnessMap: null,
+          specularIntensity: 0.04,
+          sheen: 1.0,
+          sheenRoughness: 0.85,
+          sheenColor: new THREE.Color('#ffe4ef'),
+          side: THREE.DoubleSide,
+        });
+
+        if (origMap && !gradedTex && origMap.image instanceof HTMLImageElement && !origMap.image.complete) {
+          origMap.image.addEventListener(
+            'load',
+            () => {
+              const asyncGraded = createPastelVelvetTexture(origMap);
+              if (asyncGraded) {
+                velvetMat.map = asyncGraded;
+                velvetMat.emissiveMap = asyncGraded;
+                velvetMat.needsUpdate = true;
+              }
+            },
+            { once: true },
+          );
+        }
+
+        mesh.material = velvetMat;
       }
     });
 

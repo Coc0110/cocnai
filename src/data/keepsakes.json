@@ -23,7 +23,7 @@
     "name": "Kỷ vật treo lơ lửng",
     "url": "/models/keepsakes/hanging-charm.glb",
     "initialPosition": [-1.55, 1.35, -0.65],
-    "scale": 0.85,
-    "radius": 0.75
+    "scale": 1.55,
+    "radius": 0.72
   }
 ]
