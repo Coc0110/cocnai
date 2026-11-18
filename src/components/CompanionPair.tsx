@@ -142,6 +142,48 @@ class RippleManager {
   }
 }
 
+const tempBonePos = new THREE.Vector3();
+
+function spawnRippleAtBones(
+  group: THREE.Group | null,
+  bones: Record<string, THREE.Bone>,
+  boneNames: string[],
+  groundY: number,
+  color: string,
+  startR: number,
+  maxR: number,
+  dur: number,
+  opacity: number,
+  elapsed: number,
+  isDouble = false,
+  rippleManager: RippleManager,
+) {
+  if (!group || boneNames.length === 0) return;
+  group.updateMatrixWorld(true);
+
+  let sumX = 0;
+  let sumZ = 0;
+  let validCount = 0;
+
+  for (const name of boneNames) {
+    const bone = bones[name];
+    if (bone) {
+      bone.getWorldPosition(tempBonePos);
+      sumX += tempBonePos.x;
+      sumZ += tempBonePos.z;
+      validCount++;
+    }
+  }
+
+  if (validCount > 0) {
+    const avgX = sumX / validCount;
+    const avgZ = sumZ / validCount;
+    rippleManager.add(avgX, groundY, avgZ, color, startR, maxR, dur, opacity, isDouble, elapsed);
+  } else {
+    rippleManager.add(group.position.x, groundY, group.position.z, color, startR, maxR, dur, opacity, isDouble, elapsed);
+  }
+}
+
 const RIPPLE_VERTEX_SHADER = /* glsl */ `
   uniform float uProgress;
   varying vec2 vUv;
@@ -492,7 +534,8 @@ function CompanionEntity({
   const deerlingStateRef = useRef<DeerlingState>('REST_STAND');
   const deerlingStateTimerRef = useRef<number>(0);
   const deerlingDurationRef = useRef<number>(5.5);
-  const prevWalkSinRef = useRef<number>(0);
+  const handRippleRef = useRef<boolean>(false);
+  const footRippleRef = useRef<boolean>(false);
 
   // Trạng thái cho Froakie (Mặc định bắt đầu bằng ngồi nghỉ ngơi thư giãn)
   const froakieStateRef = useRef<FroakieState>('REST_SIT');
@@ -688,11 +731,11 @@ function CompanionEntity({
         const meetYaw = Math.atan2(lookDx, lookDz);
         groupRef.current.rotation.y = lerpAngle(groupRef.current.rotation.y, meetYaw, delta * 8.0);
 
-        // Căn khoảng cách chuẩn 0.88 đơn vị (cả khi dist2D < 0.88 lẫn dist2D > 0.88) để 2 model tuyệt đối không chồng lên nhau
-        if (sameLayer && Math.abs(dist2D - 0.88) > 0.01) {
-          const targetDist = 0.88;
+        // Căn khoảng cách chuẩn 1.15 đơn vị (cả khi dist2D < 1.15 lẫn dist2D > 1.15) để 2 model tuyệt đối không chồng lên nhau
+        if (sameLayer && Math.abs(dist2D - 1.15) > 0.01) {
+          const targetDist = 1.15;
           const diff = dist2D - targetDist; // Âm thì lùi ra xa nhau, dương thì tiến lại gần
-          const moveStep = diff * 0.5 * Math.min(1, delta * 8.0);
+          const moveStep = diff * 0.5 * Math.min(1, delta * 10.0);
           curPos.x += (lookDx / dist2D) * moveStep;
           curPos.z += (lookDz / dist2D) * moveStep;
           groupRef.current.position.copy(curPos);
@@ -704,9 +747,9 @@ function CompanionEntity({
         modelInnerRef.current.rotation.x = 0;
         resetAllBones(bones);
 
-        // Khuỵu nhẹ 2 chân trước và cúi thấp đầu về phía trước (đỉnh đầu ở Y ~ 0.43, Z ~ +0.35)
+        // Khuỵu nhẹ 2 chân trước và cúi đầu vừa phải (không chúi quá xa vào mặt Froakie)
         if (bones['waist']) {
-          bones['waist'].position.set(0, 0.215, -0.039);
+          bones['waist'].position.set(0, 0.225, -0.039);
         }
         rotateBoneLocal(bones['left_arm_01'], 0, 0.48, 0);
         rotateBoneLocal(bones['left_arm_02'], 0, -0.85, 0);
@@ -716,9 +759,9 @@ function CompanionEntity({
         rotateBoneLocal(bones['right_hand'], 0, 0.38, 0);
 
         const nod = Math.sin(elapsed * 4.5) * 0.04;
-        rotateBoneLocal(bones['spine_02'], 0, -0.38, 0);
-        rotateBoneLocal(bones['neck'], 0, -0.88 + nod, 0);
-        rotateBoneLocal(bones['head'], 0, -0.25 - nod, Math.sin(elapsed * 3.2) * 0.05);
+        rotateBoneLocal(bones['spine_02'], 0, -0.24, 0);
+        rotateBoneLocal(bones['neck'], 0, -0.68 + nod, 0);
+        rotateBoneLocal(bones['head'], 0, -0.28 - nod, Math.sin(elapsed * 3.2) * 0.05);
 
         // Khẽ rung đôi tai và vẫy đuôi
         const earTwitch = Math.sin(elapsed * 11.0) * 0.22;
@@ -738,7 +781,7 @@ function CompanionEntity({
         }
         rotateBoneLocal(bones['spine'], 0, -0.42, 0);
 
-        // Reset riêng cánh tay phải rồi vươn CAO lên phía trước (Y ~ 0.52, Z ~ +0.47) đặt đúng lên đỉnh đầu Deerling
+        // Reset riêng cánh tay phải rồi duỗi thẳng hơn về phía trước vươn qua khoảng cách 1.15 đặt đúng lên trán Deerling
         ['right_arm_01', 'right_arm_02', 'right_arm_03', 'right_hand'].forEach((n) => {
           if (bones[n]?.userData.restQuat) bones[n].quaternion.copy(bones[n].userData.restQuat);
         });
@@ -746,10 +789,10 @@ function CompanionEntity({
         const patStroke = Math.sin(elapsed * 6.5) * 0.12;
         const patUpDown = Math.cos(elapsed * 6.5) * 0.06;
 
-        rotateBoneLocal(bones['right_arm_01'], -1.44, -1.02 + patStroke, -2.13 + patUpDown);
-        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.25 + patStroke * 0.8);
+        rotateBoneLocal(bones['right_arm_01'], -1.38, -0.95 + patStroke, -2.05 + patUpDown);
+        rotateBoneLocal(bones['right_arm_02'], 0, 0, -0.06 + patStroke * 0.6);
         rotateBoneLocal(bones['right_arm_03'], 0, 0, 0);
-        rotateBoneLocal(bones['right_hand'], 0, 0, 0.35 + patUpDown * 1.5);
+        rotateBoneLocal(bones['right_hand'], 0, 0, 0.28 + patUpDown * 1.4);
       }
       return;
     }
@@ -894,13 +937,13 @@ function CompanionEntity({
         const dz = targetPos.z - curPos.z;
         const dist2D = Math.hypot(dx, dz);
 
-        const cycleDuration = 1.35;
+        const cycleDuration = 1.72;
         const tCycle = (timer % cycleDuration) / cycleDuration;
 
-        // 2. Chỉ chuyển trạng thái nghỉ ở cuối Pha 3 tiếp đất (tCycle >= 0.92 && dist2D < 0.22) hoặc trước Pha 1 (tCycle < 0.08 && dist2D < 0.18)
+        // 2. Chỉ chuyển trạng thái nghỉ ở cuối Pha 3 tiếp đất (tCycle >= 0.92 && dist2D < 0.22) hoặc trước Pha 1 (tCycle < 0.06 && dist2D < 0.18)
         const canArrive =
           (tCycle >= 0.92 && dist2D < 0.22) ||
-          (tCycle < 0.08 && dist2D < 0.18);
+          (tCycle < 0.06 && dist2D < 0.18);
 
         if (canArrive) {
           // Đến nơi: chuyển sang một trong các trạng thái nghỉ/tĩnh
@@ -931,9 +974,9 @@ function CompanionEntity({
 
           curPos.y = THREE.MathUtils.lerp(curPos.y, targetPos.y, delta * 3.0);
 
-          if (tCycle < 0.24) {
-            // Pha 1: Nhún lấy đà tại chỗ (0.0 <= tCycle < 0.24) - Nhịp nhún duy nhất
-            const dip = Math.sin((tCycle / 0.24) * Math.PI * 0.85);
+          if (tCycle < 0.18) {
+            // Pha 1: Nhún lấy đà tại chỗ (0.0 <= tCycle < 0.18) - Nhịp nhún duy nhất
+            const dip = Math.sin((tCycle / 0.18) * Math.PI * 0.85);
             modelInnerRef.current.position.y = 0;
             modelInnerRef.current.rotation.x = 0;
             if (bones['waist']) {
@@ -960,48 +1003,75 @@ function CompanionEntity({
             rotateBoneLocal(bones['head'], 0, 0.05 * dip, 0);
             rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.0) * 0.15);
 
-            prevWalkSinRef.current = 0;
-          } else if (tCycle < 0.80) {
-            // Pha 2: Bật nhảy thấp lơ lửng (0.24 <= tCycle < 0.80)
-            const pAir = (tCycle - 0.24) / 0.56;
-            const hopArc = Math.sin(pAir * Math.PI);
+            handRippleRef.current = false;
+            footRippleRef.current = false;
+          } else if (tCycle < 0.84) {
+            // Pha 2: Bật nhảy lơ lửng slow-motion (0.18 <= tCycle < 0.84)
+            const pAir = (tCycle - 0.18) / 0.66;
+            const uAir = pAir + 0.115 * Math.sin(pAir * Math.PI * 2.0);
 
-            // Nếu dist2D < 0.05 thì ngừng cộng thêm tọa độ nhưng vẫn chạy hết tiến trình đến Pha 3
+            // Tăng vận tốc bay ngang cơ sở lên 1.18 đv/s để mỗi cú nhảy vươn xa thanh thoát
             if (dist2D >= 0.05) {
-              const airSpeed = 0.68 * Math.sin(pAir * Math.PI * 0.85 + 0.15);
+              const airSpeed = 1.18 * Math.sin(uAir * Math.PI * 0.85 + 0.15);
               const stepDist = Math.min(dist2D, delta * airSpeed);
               curPos.x += (dx / dist2D) * stepDist;
               curPos.z += (dz / dist2D) * stepDist;
             }
 
-            modelInnerRef.current.position.y = hopArc * 0.25;
-            modelInnerRef.current.rotation.x = -Math.cos(pAir * Math.PI) * 0.12;
+            const rawSin = Math.sin(uAir * Math.PI);
+            const hopArc =
+              rawSin * THREE.MathUtils.smoothstep(pAir, 1.0, 0.82) +
+              Math.pow(rawSin, 1.6) * (1.0 - THREE.MathUtils.smoothstep(pAir, 1.0, 0.82));
+            modelInnerRef.current.position.y = hopArc * 0.32;
+            modelInnerRef.current.rotation.x = -Math.cos(uAir * Math.PI) * 0.12;
 
             if (bones['waist']) {
               bones['waist'].position.set(0, 0.257, -0.039);
             }
 
-            // Ở nửa sau cú nhảy (pAir > 0.45), giảm mượt góc gập của cả 4 chân về 0 theo 1 - smoothstep(pAir, 0.45, 1.0)
-            const foldMultiplier =
-              pAir > 0.45 ? 1.0 - THREE.MathUtils.smoothstep(pAir, 0.45, 1.0) : 1.0;
+            // Lệch pha: chân trước duỗi thẳng sớm hơn đón đất, chân sau thu về muộn hơn
+            const frontFold = 1.0 - THREE.MathUtils.smoothstep(uAir, 0.42, 0.88);
+            const hindFold = 1.0 - THREE.MathUtils.smoothstep(uAir, 0.58, 0.98);
 
-            rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['right_arm_02'], 0, 0.95 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc * frontFold, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc * frontFold, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * hopArc * frontFold, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.95 * hopArc * frontFold, 0);
 
-            rotateBoneLocal(bones['left_leg_01'], 0, 0.38 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['right_leg_01'], 0, 0.38 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['left_leg_02'], 0, 0.28 * hopArc * foldMultiplier, 0);
-            rotateBoneLocal(bones['right_leg_02'], 0, 0.28 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['left_leg_01'], 0, 0.38 * hopArc * hindFold, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, 0.38 * hopArc * hindFold, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.28 * hopArc * hindFold, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.28 * hopArc * hindFold, 0);
 
             rotateBoneLocal(bones['neck'], 0, 0.22 * hopArc, 0);
             rotateBoneLocal(bones['head'], 0, -0.10 * hopArc, 0);
             rotateBoneLocal(bones['left_ear'], 0, 0, 0.24 * hopArc);
             rotateBoneLocal(bones['right_ear'], 0, 0, -0.24 * hopArc);
             rotateBoneLocal(bones['tail'], 0, -0.35 * hopArc, Math.sin(elapsed * 8.0) * 0.20);
+
+            // Cuối Pha 2 khi 2 chân trước vừa vươn chạm đất (pAir >= 0.90)
+            if (pAir >= 0.90 && !handRippleRef.current) {
+              handRippleRef.current = true;
+              spawnRippleAtBones(
+                groupRef.current,
+                bones,
+                ['left_hand', 'right_hand'],
+                curPos.y,
+                '#fbcfe8',
+                0.05,
+                0.38,
+                0.95,
+                0.50,
+                elapsed,
+                false,
+                rippleManager,
+              );
+            }
           } else {
-            // Pha 3: Tiếp đất êm ái (0.80 <= tCycle <= 1.0) - BỎ nhịp nhún thừa
+            // Pha 3: Tiếp đất êm ái với quán tính mềm (0.84 <= tCycle <= 1.0)
+            const pLand = (tCycle - 0.84) / 0.16;
+            const softWave = Math.sin(pLand * Math.PI);
+
             modelInnerRef.current.position.y = 0;
             modelInnerRef.current.rotation.x = THREE.MathUtils.lerp(
               modelInnerRef.current.rotation.x,
@@ -1013,24 +1083,30 @@ function CompanionEntity({
               bones['waist'].position.set(0, 0.257, -0.039);
             }
 
-            // Toàn bộ 4 chân giữ nguyên ở tư thế đứng thẳng (đã được resetAllBones ở đầu frame)
-            rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 3.0) * 0.08);
-            rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 3.0) * 0.08);
-            rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.5) * 0.15);
+            // Toàn bộ 4 chân đứng thẳng trên sàn, cổ/đầu/tai/đuôi chuyển động quán tính mềm
+            rotateBoneLocal(bones['spine_02'], 0, -0.05 * softWave, 0);
+            rotateBoneLocal(bones['neck'], 0, -0.11 * softWave, 0);
+            rotateBoneLocal(bones['head'], 0, 0.07 * softWave, 0);
+            rotateBoneLocal(bones['left_ear'], 0, 0, -0.16 * softWave);
+            rotateBoneLocal(bones['right_ear'], 0, 0, 0.16 * softWave);
+            rotateBoneLocal(bones['tail'], 0, -0.18 * softWave, 0);
 
-            if (prevWalkSinRef.current === 0) {
-              prevWalkSinRef.current = 1;
-              rippleManager.add(
-                curPos.x,
+            // Đầu Pha 3 khi 2 chân sau chạm đất
+            if (tCycle >= 0.84 && !footRippleRef.current) {
+              footRippleRef.current = true;
+              spawnRippleAtBones(
+                groupRef.current,
+                bones,
+                ['left_foot', 'right_foot'],
                 curPos.y,
-                curPos.z,
                 '#fbcfe8',
                 0.06,
                 0.48,
                 1.05,
                 0.60,
-                false,
                 elapsed,
+                false,
+                rippleManager,
               );
             }
           }
@@ -1042,6 +1118,9 @@ function CompanionEntity({
         const jumpTime = 1.1;
 
         if (timer < prepTime) {
+          handRippleRef.current = false;
+          footRippleRef.current = false;
+
           const crouchP = timer / prepTime;
           modelInnerRef.current.position.y = -0.05 * crouchP;
           rotateBoneLocal(bones['left_arm_01'], 0, 0.2 * crouchP, 0);
@@ -1071,24 +1150,48 @@ function CompanionEntity({
           rotateBoneLocal(bones['right_leg_02'], 0, 0.35 * leapArc, 0);
           rotateBoneLocal(bones['neck'], 0, 0.28 * leapArc, 0);
           rotateBoneLocal(bones['head'], 0, -0.15 * leapArc, 0);
+
+          // Chân trước vươn chạm đất sớm khi p >= 0.90
+          if (p >= 0.90 && !handRippleRef.current) {
+            handRippleRef.current = true;
+            spawnRippleAtBones(
+              groupRef.current,
+              bones,
+              ['left_hand', 'right_hand'],
+              targetPos.y,
+              '#f9a8d4',
+              0.06,
+              0.52,
+              1.15,
+              0.65,
+              elapsed,
+              false,
+              rippleManager,
+            );
+          }
         } else {
           curPos.copy(targetPos);
           groupRef.current.position.copy(curPos);
           modelInnerRef.current.position.y = 0;
           resetAllBones(bones);
 
-          rippleManager.add(
-            curPos.x,
-            curPos.y,
-            curPos.z,
-            '#f9a8d4',
-            0.08,
-            0.72,
-            1.35,
-            0.75,
-            true,
-            elapsed,
-          );
+          if (!footRippleRef.current) {
+            footRippleRef.current = true;
+            spawnRippleAtBones(
+              groupRef.current,
+              bones,
+              ['left_foot', 'right_foot'],
+              targetPos.y,
+              '#f9a8d4',
+              0.08,
+              0.72,
+              1.35,
+              0.75,
+              elapsed,
+              true,
+              rippleManager,
+            );
+          }
 
           // Nhảy sang tầng mới xong: nghỉ ngơi hoặc cuộn mình nằm ngủ
           const rand = Math.random();
@@ -1210,6 +1313,9 @@ function CompanionEntity({
         const jumpTime = 0.95;
 
         if (timer < prepTime) {
+          handRippleRef.current = false;
+          footRippleRef.current = false;
+
           // Nhún lấy đà từ tư thế ngồi ếch
           modelInnerRef.current.position.y = 0;
           modelInnerRef.current.rotation.x = 0;
@@ -1293,6 +1399,25 @@ function CompanionEntity({
           rotateBoneLocal(bones['right_leg_02'], 0, kneeRy, 0);
           rotateBoneLocal(bones['left_foot'], 0, footRy, 0);
           rotateBoneLocal(bones['right_foot'], 0, footRy, 0);
+
+          // Khi đang đáp xuống ở cuối cú nhảy (p >= 0.88): 2 bàn tay trước chạm đất trước
+          if (p >= 0.88 && !handRippleRef.current) {
+            handRippleRef.current = true;
+            spawnRippleAtBones(
+              groupRef.current,
+              bones,
+              ['left_hand', 'right_hand'],
+              curPos.y,
+              '#7dd3fc',
+              0.05,
+              0.40,
+              0.95,
+              0.55,
+              elapsed,
+              false,
+              rippleManager,
+            );
+          }
         } else {
           curPos.copy(targetPos);
           groupRef.current.position.copy(curPos);
@@ -1300,19 +1425,25 @@ function CompanionEntity({
           modelInnerRef.current.rotation.x = 0;
           applyFrogSitPose(bones, 0);
 
-          const isLayerHop = Math.abs(targetPos.y - startPos.y) > 0.45;
-          rippleManager.add(
-            curPos.x,
-            curPos.y,
-            curPos.z,
-            '#7dd3fc',
-            isLayerHop ? 0.08 : 0.06,
-            isLayerHop ? 0.72 : 0.48,
-            isLayerHop ? 1.35 : 1.05,
-            isLayerHop ? 0.75 : 0.60,
-            isLayerHop,
-            elapsed,
-          );
+          // Khi hoàn tất cú nhảy: 2 bàn chân sau chạm đất (tuyệt đối không phát ở curPos dưới mông)
+          if (!footRippleRef.current) {
+            footRippleRef.current = true;
+            const isLayerHop = Math.abs(targetPos.y - startPos.y) > 0.45;
+            spawnRippleAtBones(
+              groupRef.current,
+              bones,
+              ['left_foot', 'right_foot'],
+              curPos.y,
+              '#7dd3fc',
+              isLayerHop ? 0.08 : 0.06,
+              isLayerHop ? 0.72 : 0.48,
+              isLayerHop ? 1.35 : 1.05,
+              isLayerHop ? 0.75 : 0.60,
+              elapsed,
+              isLayerHop,
+              rippleManager,
+            );
+          }
 
           // Sau cú nhảy: quay về nghỉ ngơi thay vì nhảy tiếp
           froakieStateRef.current = 'REST_SIT';
