@@ -509,8 +509,8 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   bottomShell.add(botDomeMesh);
   capsule.add(bottomShell);
 
-  // Tăng kích thước viên nang lên 1.06x
-  capsule.scale.setScalar(1.06);
+  // Tăng kích thước viên nang lên 1.36x cân xứng với lòng lọ thủy tinh
+  capsule.scale.setScalar(1.36);
 
   return capsule;
 }
@@ -601,36 +601,37 @@ const _deltaVec = new THREE.Vector3();
 // Giải va chạm Hình trụ Đoạn thẳng 3D (Capsule Segment-to-Segment) tĩnh lúc khởi tạo
 function solveCapsulesCollision(capsules: THREE.Group[], iterations: number) {
   const len = capsules.length;
-  const H = 0.40;
-  const R = 0.25;
-  const minSep = 0.53; // 2 * R + 0.03
-  const targetSep = minSep + 0.06; // 0.59 (khoảng hở an toàn 0.06 giữa các viên)
-  const wallRadius = 1.88 - R; // 1.63
-  const minY = 1.05 + R; // 1.30
-  const maxY = 5.45 - R; // 5.20
+  const H = 0.52;
+  const R = 0.33;
+  const minSep = 2 * R + 0.04; // 0.70
+  const targetSep = minSep + 0.08; // 0.78 (khoảng hở an toàn giữa các viên)
+  const minY = 1.05;
+  const maxY = 5.52;
 
   for (let it = 0; it < iterations; it++) {
-    // 1. Kiểm tra 2 đầu mút A0, A1 của từng viên nang với thành và đáy/đỉnh bình thủy tinh
+    // 1. Kiểm tra 2 đầu mút A0, A1 của từng viên nang với thành (thuôn dần ở vai bình y > 4.6) và đáy/đỉnh bình thủy tinh
     for (let i = 0; i < len; i++) {
       const cap = capsules[i];
       _dirA.set(0, 1, 0).applyEuler(cap.rotation).normalize();
       _pA0.copy(cap.position).addScaledVector(_dirA, -H);
       _pA1.copy(cap.position).addScaledVector(_dirA, H);
 
-      // Đầu mút A0 với thành trụ
+      // Đầu mút A0 với thành trụ / vai bình
+      const wr0 = _pA0.y > 4.6 ? Math.max(1.50, 2.02 - (_pA0.y - 4.6) * 0.32) : 2.02;
       const rA0 = Math.hypot(_pA0.x, _pA0.z);
-      if (rA0 > wallRadius && rA0 > 1e-4) {
-        const pen = rA0 - wallRadius;
+      if (rA0 > wr0 && rA0 > 1e-4) {
+        const pen = rA0 - wr0;
         const invR = 1 / rA0;
         cap.position.x -= _pA0.x * invR * pen;
         cap.position.z -= _pA0.z * invR * pen;
       }
 
-      // Đầu mút A1 với thành trụ
+      // Đầu mút A1 với thành trụ / vai bình
       _pA1.copy(cap.position).addScaledVector(_dirA, H);
+      const wr1 = _pA1.y > 4.6 ? Math.max(1.50, 2.02 - (_pA1.y - 4.6) * 0.32) : 2.02;
       const rA1 = Math.hypot(_pA1.x, _pA1.z);
-      if (rA1 > wallRadius && rA1 > 1e-4) {
-        const pen = rA1 - wallRadius;
+      if (rA1 > wr1 && rA1 > 1e-4) {
+        const pen = rA1 - wr1;
         const invR = 1 / rA1;
         cap.position.x -= _pA1.x * invR * pen;
         cap.position.z -= _pA1.z * invR * pen;
@@ -717,7 +718,7 @@ export function animateGlassBottleCapsules(root: THREE.Object3D, elapsed: number
   }
 }
 
-// Khởi tạo 31 viên nang nằm LỘN XỘN đủ mọi góc độ 3D, giải va chạm tĩnh 120 vòng lặp
+// Khởi tạo 31 viên nang nằm LỘN XỘN đủ mọi góc độ 3D, trải rộng toàn bộ lòng bình, giải va chạm tĩnh 160 vòng lặp
 export function createLetterCapsulesGroup(): { capsulesGroup: THREE.Group; capsulesList: THREE.Group[] } {
   const capsulesGroup = new THREE.Group();
   capsulesGroup.name = 'letterCapsulesGroup';
@@ -729,12 +730,14 @@ export function createLetterCapsulesGroup(): { capsulesGroup: THREE.Group; capsu
   for (let i = 0; i < totalLetters; i++) {
     const letter = (lettersData as LetterItem[])[i];
     const capsule = createSingleCapsule(letter);
-    capsule.scale.setScalar(1.06);
+    capsule.scale.setScalar(1.36);
 
-    // Phân bố độ cao y và bán kính r rải đều trong lòng bình (1.50 -> 4.85)
-    const y = 1.50 + (i / (totalLetters - 1 || 1)) * 3.35 + Math.sin(i * 2.3) * 0.12;
+    // Phân bố độ cao y (1.15 -> 5.35) và bán kính r theo diện tích hình tròn trải đều toàn bộ lòng bình
+    const y = 1.15 + (i / (totalLetters - 1 || 1)) * 4.20 + Math.sin(i * 2.3) * 0.15;
     const angle = (i * goldenAngle) % (Math.PI * 2);
-    const r = 0.25 + ((i * 7) % 5) * 0.20; // 0.25 -> 1.05 (nằm gọn trong lòng bình 1.63)
+    const rNorm = Math.sqrt(((i * 17 + 5) % 31) / 30);
+    const maxRAtY = y > 4.6 ? 1.55 : 1.85;
+    const r = 0.25 + rNorm * (maxRAtY - 0.25);
 
     capsule.position.set(Math.cos(angle) * r, y, Math.sin(angle) * r);
 
@@ -748,8 +751,8 @@ export function createLetterCapsulesGroup(): { capsulesGroup: THREE.Group; capsu
     capsulesList.push(capsule);
   }
 
-  // Giải va chạm tĩnh 120 vòng lặp chỉ tịnh tiến vị trí, triệt tiêu giao cắt & tạo khoảng hở an toàn 0.06
-  solveCapsulesCollision(capsulesList, 120);
+  // Giải va chạm tĩnh 160 vòng lặp chỉ tịnh tiến vị trí, triệt tiêu giao cắt & tạo khoảng hở an toàn
+  solveCapsulesCollision(capsulesList, 160);
 
   // Lưu vị trí và góc xoay đã ổn định tuyệt đối làm basePos, baseRot kèm tần số và pha dao động riêng
   for (let i = 0; i < capsulesList.length; i++) {
