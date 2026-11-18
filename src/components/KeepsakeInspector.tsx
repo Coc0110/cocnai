@@ -140,6 +140,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       userRotRef.current.y = THREE.MathUtils.lerp(userRotRef.current.y, 0, delta * 7.5);
 
       modelGroupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), Math.min(1, delta * 7.5));
+      modelGroupRef.current.position.z = THREE.MathUtils.lerp(modelGroupRef.current.position.z, 0, delta * 7.5);
 
       if (backdropRef.current) {
         const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
@@ -190,6 +191,18 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     modelGroupRef.current.rotation.x = userRotRef.current.x + Math.sin(elapsed * 1.35) * 0.055;
     modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
     modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
+
+    // Tách biệt độ sâu Z: Khi đang mở/đọc thư, đẩy nhẹ lọ thủy tinh lùi về phía sau (-1.15)
+    if (item.id === 'glass-bottle') {
+      const targetBottleZ = activeLetterId !== null && !isClosingLetter ? -1.15 : 0;
+      modelGroupRef.current.position.z = THREE.MathUtils.lerp(
+        modelGroupRef.current.position.z,
+        targetBottleZ,
+        delta * 5.5,
+      );
+    } else {
+      modelGroupRef.current.position.z = 0;
+    }
 
     // 4. Tự động co giãn theo khung hình thực tế để KHÔNG BAO GIỜ tràn màn hình
     const persp = state.camera as THREE.PerspectiveCamera;

@@ -509,11 +509,16 @@ export function createSingleCapsule(letter: LetterItem): THREE.Group {
   bottomShell.add(botDomeMesh);
   capsule.add(bottomShell);
 
-  // Tăng kích thước viên nang lên 1.22x
-  capsule.scale.setScalar(1.22);
+  // Tăng kích thước viên nang lên 1.18x
+  capsule.scale.setScalar(1.18);
 
   return capsule;
 }
+
+// Scratch vectors cho thuật toán khoảng cách 2 đoạn thẳng 3D
+const _segU = new THREE.Vector3();
+const _segV = new THREE.Vector3();
+const _segW = new THREE.Vector3();
 
 // Tính khoảng cách ngắn nhất giữa 2 đoạn thẳng 3D (A0 -> A1) và (B0 -> B1)
 function closestPointsSegmentSegment(
@@ -524,15 +529,15 @@ function closestPointsSegmentSegment(
   c1: THREE.Vector3,
   c2: THREE.Vector3,
 ): number {
-  const u = new THREE.Vector3().subVectors(p1, p0);
-  const v = new THREE.Vector3().subVectors(q1, q0);
-  const w = new THREE.Vector3().subVectors(p0, q0);
+  _segU.subVectors(p1, p0);
+  _segV.subVectors(q1, q0);
+  _segW.subVectors(p0, q0);
 
-  const a = u.dot(u);
-  const b = u.dot(v);
-  const c = v.dot(v);
-  const d = u.dot(w);
-  const e = v.dot(w);
+  const a = _segU.dot(_segU);
+  const b = _segU.dot(_segV);
+  const c = _segV.dot(_segV);
+  const d = _segU.dot(_segW);
+  const e = _segV.dot(_segW);
   const D = a * c - b * b;
 
   let sN = 0;
@@ -577,158 +582,251 @@ function closestPointsSegmentSegment(
     sc = Math.abs(sN) < 1e-6 ? 0.0 : sN / sD;
   }
 
-  c1.copy(p0).addScaledVector(u, sc);
-  c2.copy(q0).addScaledVector(v, tc);
+  c1.copy(p0).addScaledVector(_segU, sc);
+  c2.copy(q0).addScaledVector(_segV, tc);
   return c1.distanceTo(c2);
 }
 
-// Chuyển động trôi nổi đồng pha mềm mại theo độ cao Y, tuyệt đối không xuyên nhau
-export function animateGlassBottleCapsules(root: THREE.Object3D, elapsed: number, _delta?: number) {
-  const capsules = (root.userData.capsules as THREE.Group[]) || [];
-  if (!capsules || capsules.length === 0) return;
+// Scratch vectors cho vòng lặp giải va chạm Segment-to-Segment
+const _pA0 = new THREE.Vector3();
+const _pA1 = new THREE.Vector3();
+const _pB0 = new THREE.Vector3();
+const _pB1 = new THREE.Vector3();
+const _dirA = new THREE.Vector3();
+const _dirB = new THREE.Vector3();
+const _cA = new THREE.Vector3();
+const _cB = new THREE.Vector3();
+const _deltaVec = new THREE.Vector3();
+const _vRel = new THREE.Vector3();
+const _impulse = new THREE.Vector3();
+const _armA = new THREE.Vector3();
+const _armB = new THREE.Vector3();
+const _torqueA = new THREE.Vector3();
+const _torqueB = new THREE.Vector3();
 
-  for (let i = 0; i < capsules.length; i++) {
-    const cap = capsules[i];
-    if (!cap.visible) continue;
-    const initP = cap.userData.initialPosition as THREE.Vector3;
-    const initR = cap.userData.initialRotation as THREE.Euler;
-    if (!initP) continue;
+// Giải va chạm Hình trụ Đoạn thẳng 3D (Capsule Segment-to-Segment)
+function solveCapsulesCollision(
+  capsules: THREE.Group[],
+  iterations: number,
+  applyDynamics: boolean = false,
+) {
+  const len = capsules.length;
+  const H = 0.44;
+  const R = 0.28;
+  const minSep = 2 * R + 0.03; // 0.59
+  const wallRadius = 1.62 - R; // 1.34
+  const minY = 1.15 + R; // 1.43
+  const maxY = 5.45 - R; // 5.17
 
-    // Lơ lửng nhẹ theo sóng đồng pha mềm mại theo độ cao y
-    const floatY = Math.sin(elapsed * 1.2 + initP.y * 0.8) * 0.045;
-    const floatX = Math.cos(elapsed * 0.9 + initP.y * 0.6) * 0.015;
-    const floatZ = Math.sin(elapsed * 0.85 + initP.y * 0.7) * 0.015;
+  for (let it = 0; it < iterations; it++) {
+    // 1. Kiểm tra 2 đầu mút A0, A1 của từng viên nang với thành và đáy/đỉnh bình thủy tinh
+    for (let i = 0; i < len; i++) {
+      const cap = capsules[i];
+      if (!cap.visible) continue;
 
-    cap.position.set(
-      initP.x + floatX,
-      initP.y + floatY,
-      initP.z + floatZ,
-    );
+      _dirA.set(0, 1, 0).applyEuler(cap.rotation).normalize();
+      _pA0.copy(cap.position).addScaledVector(_dirA, -H);
+      _pA1.copy(cap.position).addScaledVector(_dirA, H);
 
-    if (initR) {
-      cap.rotation.x = initR.x + Math.sin(elapsed * 0.75 + initP.y * 0.5) * 0.025;
-      cap.rotation.z = initR.z + Math.cos(elapsed * 0.65 + initP.y * 0.5) * 0.025;
-      cap.rotation.y = initR.y + Math.sin(elapsed * 0.45 + initP.y * 0.4) * 0.035;
+      // Đầu mút A0 với thành trụ
+      const rA0 = Math.hypot(_pA0.x, _pA0.z);
+      if (rA0 > wallRadius && rA0 > 1e-4) {
+        const pen = rA0 - wallRadius;
+        const invR = 1 / rA0;
+        cap.position.x -= _pA0.x * invR * pen;
+        cap.position.z -= _pA0.z * invR * pen;
+      }
+
+      // Đầu mút A1 với thành trụ
+      _pA1.copy(cap.position).addScaledVector(_dirA, H);
+      const rA1 = Math.hypot(_pA1.x, _pA1.z);
+      if (rA1 > wallRadius && rA1 > 1e-4) {
+        const pen = rA1 - wallRadius;
+        const invR = 1 / rA1;
+        cap.position.x -= _pA1.x * invR * pen;
+        cap.position.z -= _pA1.z * invR * pen;
+      }
+
+      // Cả 2 đầu mút với độ cao đáy/đỉnh minY..maxY
+      _pA0.copy(cap.position).addScaledVector(_dirA, -H);
+      _pA1.copy(cap.position).addScaledVector(_dirA, H);
+
+      if (_pA0.y < minY) cap.position.y += minY - _pA0.y;
+      if (_pA0.y > maxY) cap.position.y -= _pA0.y - maxY;
+
+      _pA1.copy(cap.position).addScaledVector(_dirA, H);
+      if (_pA1.y < minY) cap.position.y += minY - _pA1.y;
+      if (_pA1.y > maxY) cap.position.y -= _pA1.y - maxY;
+    }
+
+    // 2. Kiểm tra va chạm từng cặp đoạn thẳng (A0, A1) và (B0, B1) giữa 2 viên nang i và j
+    for (let i = 0; i < len; i++) {
+      const capA = capsules[i];
+      if (!capA.visible) continue;
+      _dirA.set(0, 1, 0).applyEuler(capA.rotation).normalize();
+      _pA0.copy(capA.position).addScaledVector(_dirA, -H);
+      _pA1.copy(capA.position).addScaledVector(_dirA, H);
+
+      for (let j = i + 1; j < len; j++) {
+        const capB = capsules[j];
+        if (!capB.visible) continue;
+        _dirB.set(0, 1, 0).applyEuler(capB.rotation).normalize();
+        _pB0.copy(capB.position).addScaledVector(_dirB, -H);
+        _pB1.copy(capB.position).addScaledVector(_dirB, H);
+
+        const dist = closestPointsSegmentSegment(_pA0, _pA1, _pB0, _pB1, _cA, _cB);
+        if (dist < minSep) {
+          _deltaVec.subVectors(_cA, _cB);
+          let dLen = _deltaVec.length();
+          if (dLen < 1e-4) {
+            _deltaVec.subVectors(capA.position, capB.position);
+            dLen = _deltaVec.length();
+            if (dLen < 1e-4) {
+              _deltaVec.set(Math.sin(i * 3.1 + it), 0.1, Math.cos(j * 2.7 + it));
+              dLen = _deltaVec.length();
+            }
+          }
+          _deltaVec.multiplyScalar(1 / dLen);
+          const push = (minSep - dist) * 0.52;
+          capA.position.addScaledVector(_deltaVec, push);
+          capB.position.addScaledVector(_deltaVec, -push);
+
+          if (applyDynamics) {
+            const velA = capA.userData.vel as THREE.Vector3 | undefined;
+            const velB = capB.userData.vel as THREE.Vector3 | undefined;
+            if (velA && velB) {
+              _vRel.subVectors(velA, velB);
+              const vDot = _vRel.dot(_deltaVec);
+              if (vDot < 0) {
+                _impulse.copy(_deltaVec).multiplyScalar(vDot * 0.5);
+                velA.sub(_impulse);
+                velB.add(_impulse);
+              }
+            }
+
+            // Xoay nhẹ góc nghiêng tránh nhau nếu va chạm ở đầu mút
+            _armA.subVectors(_cA, capA.position);
+            _torqueA.crossVectors(_armA, _deltaVec);
+            capA.rotation.x += _torqueA.x * 0.05;
+            capA.rotation.z += _torqueA.z * 0.05;
+
+            _armB.subVectors(_cB, capB.position);
+            _torqueB.crossVectors(_armB, _deltaVec);
+            capB.rotation.x -= _torqueB.x * 0.05;
+            capB.rotation.z -= _torqueB.z * 0.05;
+          }
+        }
+      }
     }
   }
 }
 
-// Xếp 31 viên nang thành 5 tầng và giải va chạm Capsule Segment-to-Segment triệt để
+// Cập nhật bay lơ lửng đa hướng & Giải va chạm 3D Segment-to-Segment mỗi frame
+export function animateGlassBottleCapsules(root: THREE.Object3D, elapsed: number, delta?: number) {
+  const capsules = (root.userData.capsules as THREE.Group[]) || [];
+  if (!capsules || capsules.length === 0) return;
+
+  const dt = Math.min(delta || 0.016, 0.033);
+
+  // =========================================================================
+  // Bước A: Trôi & xoay tự do theo các hướng khác nhau
+  // =========================================================================
+  for (let i = 0; i < capsules.length; i++) {
+    const cap = capsules[i];
+    if (!cap.visible) continue;
+
+    const vel = cap.userData.vel as THREE.Vector3 | undefined;
+    const angVel = cap.userData.angVel as THREE.Vector3 | undefined;
+    const phaseOffset = (cap.userData.phaseOffset as number) || 0;
+    if (!vel || !angVel) continue;
+
+    // Lực trôi uốn lượn nhẹ theo hướng riêng
+    const wobbleX = Math.sin(elapsed * 1.5 + phaseOffset) * 0.04;
+    const wobbleY = Math.cos(elapsed * 1.8 + phaseOffset * 1.3) * 0.04;
+    const wobbleZ = Math.sin(elapsed * 1.4 + phaseOffset * 0.7) * 0.04;
+
+    cap.position.x += (vel.x + wobbleX) * dt;
+    cap.position.y += (vel.y + wobbleY) * dt;
+    cap.position.z += (vel.z + wobbleZ) * dt;
+
+    // Xoay chậm tự nhiên theo hướng riêng
+    cap.rotation.x += angVel.x * dt;
+    cap.rotation.y += angVel.y * dt;
+    cap.rotation.z += angVel.z * dt;
+
+    // Đảo chiều vận tốc nếu chạm biên lòng bình
+    const rXZ = Math.hypot(cap.position.x, cap.position.z);
+    if (rXZ > 1.25) {
+      const nx = cap.position.x / rXZ;
+      const nz = cap.position.z / rXZ;
+      const dot = vel.x * nx + vel.z * nz;
+      if (dot > 0) {
+        vel.x -= 2 * dot * nx;
+        vel.z -= 2 * dot * nz;
+      }
+    }
+    if (cap.position.y < 1.50 && vel.y < 0) vel.y = -vel.y;
+    if (cap.position.y > 5.10 && vel.y > 0) vel.y = -vel.y;
+  }
+
+  // =========================================================================
+  // Bước B: Giải va chạm Hình trụ Đoạn thẳng 3D (6 vòng lặp mỗi frame)
+  // =========================================================================
+  solveCapsulesCollision(capsules, 6, true);
+}
+
+// Khởi tạo 31 viên nang nằm LỘN XỘN đủ mọi góc độ 3D, bay lơ lửng đa hướng
 export function createLetterCapsulesGroup(): { capsulesGroup: THREE.Group; capsulesList: THREE.Group[] } {
   const capsulesGroup = new THREE.Group();
   capsulesGroup.name = 'letterCapsulesGroup';
   const capsulesList: THREE.Group[] = [];
 
-  const layerCounts = [6, 6, 7, 6, 6];
-  const layerY = [1.35, 2.05, 2.75, 3.45, 4.15];
+  const totalLetters = Math.min(31, (lettersData as LetterItem[]).length);
+  const goldenAngle = 2.39996322972865332; // phi * 2pi
 
-  let currentId = 1;
-  for (let l = 0; l < 5; l++) {
-    const count = layerCounts[l];
-    const baseY = layerY[l];
-    const layerOffsetAngle = l * 1.37;
+  for (let i = 0; i < totalLetters; i++) {
+    const letter = (lettersData as LetterItem[])[i];
+    const capsule = createSingleCapsule(letter);
+    capsule.scale.setScalar(1.18);
 
-    for (let i = 0; i < count; i++) {
-      if (currentId > (lettersData as LetterItem[]).length) break;
-      const letter = (lettersData as LetterItem[])[currentId - 1];
-      const capsule = createSingleCapsule(letter);
+    // Phân bố độ cao y và bán kính r rải đều trong lòng bình
+    const y = 1.65 + (i / (totalLetters - 1 || 1)) * 3.3 + Math.sin(i * 2.3) * 0.12;
+    const angle = (i * goldenAngle) % (Math.PI * 2);
+    const r = 0.25 + ((i * 7) % 5) * 0.17; // 0.25 -> 0.93
 
-      let r = 0;
-      let angle = 0;
-      if (count === 7 && i === 0) {
-        r = 0.25;
-        angle = layerOffsetAngle;
-      } else {
-        const stepIndex = count === 7 ? i - 1 : i;
-        const totalOuter = count === 7 ? count - 1 : count;
-        angle = (stepIndex / totalOuter) * Math.PI * 2 + layerOffsetAngle;
-        r = 0.95 + ((currentId * 7) % 5) * 0.11; // 0.95 -> 1.39
-      }
+    capsule.position.set(Math.cos(angle) * r, y, Math.sin(angle) * r);
 
-      const x = Math.cos(angle) * r;
-      const z = Math.sin(angle) * r;
-      const y = baseY + ((currentId * 13) % 7) * 0.05 - 0.15;
+    // Góc xoay 3D ngẫu nhiên hoàn toàn trên cả 3 trục (viên nằm ngang, chéo 45 độ, dựng đứng, chúc đầu...)
+    capsule.rotation.order = 'YXZ';
+    capsule.rotation.x = ((i * 4.1 + 0.8) % (Math.PI * 2)) - Math.PI;
+    capsule.rotation.y = ((i * 2.7 + 1.5) % (Math.PI * 2)) - Math.PI;
+    capsule.rotation.z = ((i * 5.3 + 2.3) % (Math.PI * 2)) - Math.PI;
 
-      capsule.position.set(x, y, z);
+    // Vector vận tốc trôi 3D riêng biệt (tốc độ nhỏ ~0.18 đv/s)
+    const speed = 0.16 + ((i * 3) % 4) * 0.02; // 0.16 -> 0.22
+    const vTheta = (i * 3.7 + 1.1) % (Math.PI * 2);
+    const vPhi = (((i * 2.9) % 2.0) - 1.0) * 0.45;
+    const cosP = Math.cos(vPhi);
+    const vx = Math.cos(vTheta) * cosP * speed;
+    const vy = Math.sin(vPhi) * speed;
+    const vz = Math.sin(vTheta) * cosP * speed;
+    capsule.userData.vel = new THREE.Vector3(vx, vy, vz);
 
-      // Giới hạn góc nghiêng tiltAngle ở mức vừa phải (0.15 đến 0.28 rad) để không đâm xiên nhau
-      const tiltAngle = 0.15 + ((currentId * 11) % 4) * 0.043;
-      const yawAngle = angle + Math.PI / 2 + ((currentId * 17) % 5) * 0.25;
-      capsule.rotation.order = 'YXZ';
-      capsule.rotation.y = yawAngle;
-      capsule.rotation.x = Math.sin(currentId * 2.3) * tiltAngle;
-      capsule.rotation.z = Math.cos(currentId * 1.9) * tiltAngle;
+    // Vector vận tốc xoay chậm riêng (~0.25 rad/s)
+    const wx = (((i * 7.1 + 0.5) % 2.0) - 1.0) * 0.25;
+    const wy = (((i * 3.9 + 1.2) % 2.0) - 1.0) * 0.25;
+    const wz = (((i * 5.7 + 2.1) % 2.0) - 1.0) * 0.25;
+    capsule.userData.angVel = new THREE.Vector3(wx, wy, wz);
 
-      capsulesGroup.add(capsule);
-      capsulesList.push(capsule);
-      currentId++;
-    }
+    capsule.userData.phaseOffset = (i * 1.618) % (Math.PI * 2);
+
+    capsulesGroup.add(capsule);
+    capsulesList.push(capsule);
   }
 
-  // Giải va chạm Hình trụ / Đoạn thẳng 3D (Capsule Segment-to-Segment) 40 vòng lặp
-  const len = capsulesList.length;
-  const R = 0.29;
-  const H = 0.46;
-  const minClearance = 2 * R; // 0.58
-  const iterations = 40;
+  // Giải va chạm ban đầu 35 vòng lặp để các viên nang tách rời hoàn toàn ngay từ frame đầu tiên
+  solveCapsulesCollision(capsulesList, 35, false);
 
-  const pA0 = new THREE.Vector3();
-  const pA1 = new THREE.Vector3();
-  const pB0 = new THREE.Vector3();
-  const pB1 = new THREE.Vector3();
-  const dirA = new THREE.Vector3();
-  const dirB = new THREE.Vector3();
-  const cA = new THREE.Vector3();
-  const cB = new THREE.Vector3();
-  const deltaVec = new THREE.Vector3();
-
-  for (let it = 0; it < iterations; it++) {
-    for (let i = 0; i < len; i++) {
-      const capA = capsulesList[i];
-      dirA.set(0, 1, 0).applyEuler(capA.rotation).normalize();
-      pA0.copy(capA.position).addScaledVector(dirA, -H);
-      pA1.copy(capA.position).addScaledVector(dirA, H);
-
-      for (let j = i + 1; j < len; j++) {
-        const capB = capsulesList[j];
-        dirB.set(0, 1, 0).applyEuler(capB.rotation).normalize();
-        pB0.copy(capB.position).addScaledVector(dirB, -H);
-        pB1.copy(capB.position).addScaledVector(dirB, H);
-
-        const dist = closestPointsSegmentSegment(pA0, pA1, pB0, pB1, cA, cB);
-        if (dist < minClearance) {
-          deltaVec.subVectors(cA, cB);
-          let dLen = deltaVec.length();
-          if (dLen < 0.0001) {
-            deltaVec.subVectors(capA.position, capB.position);
-            dLen = deltaVec.length();
-            if (dLen < 0.0001) {
-              deltaVec.set(Math.sin(i * 3.1), 0.1, Math.cos(j * 2.7));
-              dLen = deltaVec.length();
-            }
-          }
-          deltaVec.normalize();
-          const push = (minClearance - dist) * 0.5;
-          capA.position.addScaledVector(deltaVec, push);
-          capB.position.addScaledVector(deltaVec, -push);
-        }
-      }
-    }
-
-    // Kẹp (clamp) nằm gọn trong lòng bình: r <= 1.32, 1.35 <= y <= 5.15
-    for (let i = 0; i < len; i++) {
-      const p = capsulesList[i].position;
-      const r = Math.hypot(p.x, p.z);
-      if (r > 1.32) {
-        const factor = 1.32 / r;
-        p.x *= factor;
-        p.z *= factor;
-      }
-      p.y = Math.min(5.15, Math.max(1.35, p.y));
-    }
-  }
-
-  // Lưu tọa độ đã giải hết va chạm làm vị trí nghỉ gốc
   for (const cap of capsulesList) {
     cap.userData.initialPosition = cap.position.clone();
     cap.userData.initialRotation = cap.rotation.clone();

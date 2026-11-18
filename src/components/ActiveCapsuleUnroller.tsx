@@ -61,15 +61,15 @@ export function ActiveCapsuleUnroller({
 
   // 1. Tính kích thước lá thư targetW và targetH chuẩn tỷ lệ aspectRatio (4:1) KHÔNG BAO GIỜ tràn viền
   const { targetW, targetH, targetHolderScale } = useMemo(() => {
-    // Mặt phẳng lá thư đặt tại localTargetPos (z = 0.15) -> distToCam = 2.45 - 0.15 = 2.30
-    const distToCam = 2.30;
-    const visH = 2 * distToCam * Math.tan(THREE.MathUtils.degToRad(50) / 2);
+    // Mặt phẳng lá thư đặt tại localTargetPos (z = 0.35) -> distToPaper = 2.45 - 0.35 = 2.10
+    const distToPaper = 2.10;
+    const visH = 2 * distToPaper * Math.tan(THREE.MathUtils.degToRad(50) / 2);
     const visW = visH * (size.width / Math.max(1, size.height));
-    const w = Math.min(2.2, visW * 0.80);
+    const w = Math.min(2.1, visW * 0.80);
     const h = w / letter.aspectRatio;
 
     // Chiều dài cuộn giấy scrollRoll trong capsuleObj là 0.94 * scaleY
-    const scrollMeshH = 0.94 * (capsuleObj.scale.y || 1.22);
+    const scrollMeshH = 0.94 * (capsuleObj.scale.y || 1.18);
     const holderScale = h / scrollMeshH;
 
     return {
@@ -107,8 +107,8 @@ export function ActiveCapsuleUnroller({
     [backTex],
   );
 
-  // Đích dừng chính giữa trước ống kính (nhô trước tâm bình 0.15)
-  const localTargetPos = useMemo(() => new THREE.Vector3(0, 0, 0.15), []);
+  // Đích dừng chính giữa trước ống kính (ở hẳn phía trước z = 0.35)
+  const localTargetPos = useMemo(() => new THREE.Vector3(0, 0, 0.35), []);
 
   // Điểm neo cao hơn miệng lọ để viên nang chui thẳng ra ngoài miệng lọ
   const aboveMouthPos = useMemo(() => {
@@ -329,7 +329,7 @@ export function ActiveCapsuleUnroller({
 
     // Khi đã mở hoàn tất (t >= 3.15), cho phép người dùng xoay và zoom ngắm thư
     if (paperGroupRef.current) {
-      paperGroupRef.current.position.set(0, 0, 0.15);
+      paperGroupRef.current.position.set(0, 0, 0.35);
       if (t >= 3.15) {
         paperGroupRef.current.rotation.y = userLetterRotRef.current.y;
         paperGroupRef.current.rotation.x = userLetterRotRef.current.x;
