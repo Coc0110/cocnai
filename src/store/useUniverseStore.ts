@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import { CompanionId } from '../types/universe';
+import * as THREE from 'three';
+
+export const liveKeepsakePoses: Record<
+  string,
+  { pos: THREE.Vector3; quat: THREE.Quaternion; scale: number }
+> = {};
 
 export interface UniverseState {
   selectedKeepsakeId: string | null;

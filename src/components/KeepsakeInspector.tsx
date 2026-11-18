@@ -3,7 +3,7 @@ import { useFrame, ThreeEvent } from '@react-three/fiber';
 import { useGLTF, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { KeepsakeManifestItem, LetterItem } from '../types/universe';
-import { useUniverseStore } from '../store/useUniverseStore';
+import { useUniverseStore, liveKeepsakePoses } from '../store/useUniverseStore';
 import {
   prepareKeepsakeScene,
   animateSuppleBracelet,
@@ -32,11 +32,22 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   const modelGroupRef = useRef<THREE.Group>(null);
   const backdropRef = useRef<THREE.Mesh>(null);
 
-  const currentWorldPosRef = useRef<THREE.Vector3>(
-    selectedKeepsakeOrigin
-      ? new THREE.Vector3(...selectedKeepsakeOrigin)
-      : new THREE.Vector3(...item.initialPosition),
-  );
+  const openTRef = useRef<number>(0);
+  const closeTRef = useRef<number>(0);
+  const hasCapturedOpenStart = useRef<boolean>(false);
+  const hasCapturedCloseStart = useRef<boolean>(false);
+  const openStartPos = useRef<THREE.Vector3>(new THREE.Vector3());
+  const openStartQuat = useRef<THREE.Quaternion>(new THREE.Quaternion());
+  const openStartScale = useRef<number>(1.0);
+  const closeStartPos = useRef<THREE.Vector3>(new THREE.Vector3());
+  const closeStartQuat = useRef<THREE.Quaternion>(new THREE.Quaternion());
+  const closeStartScale = useRef<number>(1.0);
+  const currentBottleZRef = useRef<number>(0);
+
+  const _tempCamDir = useMemo(() => new THREE.Vector3(), []);
+  const _tempRootQuat = useMemo(() => new THREE.Quaternion(), []);
+  const _tempEuler = useMemo(() => new THREE.Euler(), []);
+  const _tempTargetQuat = useMemo(() => new THREE.Quaternion(), []);
 
   const [isDragging, setIsDragging] = useState(false);
   const [zoomScale, setZoomScale] = useState(1.0);
@@ -95,17 +106,17 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   };
 
   useEffect(() => {
-    if (selectedKeepsakeOrigin) {
-      currentWorldPosRef.current.set(...selectedKeepsakeOrigin);
-    } else {
-      currentWorldPosRef.current.set(...item.initialPosition);
-    }
+    openTRef.current = 0;
+    closeTRef.current = 0;
+    hasCapturedOpenStart.current = false;
+    hasCapturedCloseStart.current = false;
+    currentBottleZRef.current = 0;
     userRotRef.current = { x: 0, y: 0 };
     setZoomScale(1.0);
     setIsCorkOpen(false);
     setIsReturningToSpace(false);
     handleFinishCloseLetter();
-  }, [item.id, item.initialPosition, selectedKeepsakeOrigin]);
+  }, [item.id, selectedKeepsakeOrigin]);
 
   // Hỗ trợ chụm/tách 2 ngón tay (pinch-to-zoom) mượt mà trên điện thoại
   useEffect(() => {
@@ -113,6 +124,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     let initialZoom = 1.0;
 
     const handleTouchStart = (e: TouchEvent) => {
+      if (isReturningToSpace) return;
       if (e.touches.length === 2 && activeLetterId === null) {
         const t0 = e.touches[0];
         const t1 = e.touches[1];
@@ -122,6 +134,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      if (isReturningToSpace) return;
       if (e.touches.length === 2 && initialDist > 0 && activeLetterId === null) {
         e.preventDefault();
         e.stopPropagation();
@@ -140,97 +153,120 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
     };
-  }, [activeLetterId, zoomScale]);
+  }, [activeLetterId, isReturningToSpace, zoomScale]);
 
   useFrame((state, delta) => {
     if (!rootGroupRef.current || !modelGroupRef.current) return;
 
     const elapsed = state.clock.getElapsedTime();
+    const inspectDist = item.id === 'glass-bottle' ? 2.45 : 2.65;
 
-    // 1. Xử lý hoạt ảnh "bay" từ Camera quay trở lại tọa độ cũ ngoài không gian (không teleport)
-    if (isReturningToSpace) {
+    // 1. Root group HUD cố định vững vàng ở khoảng cách inspectDist phía trước camera
+    state.camera.getWorldDirection(_tempCamDir);
+    rootGroupRef.current.position.copy(state.camera.position).addScaledVector(_tempCamDir, inspectDist);
+    rootGroupRef.current.quaternion.copy(state.camera.quaternion);
+    rootGroupRef.current.updateMatrixWorld(true);
+
+    // Đặt tấm nền mờ luôn nằm phía sau vật phẩm (inspectDist + 1.2) và hướng thẳng camera
+    if (backdropRef.current) {
+      backdropRef.current.position.copy(state.camera.position).addScaledVector(_tempCamDir, inspectDist + 1.2);
+      backdropRef.current.quaternion.copy(state.camera.quaternion);
+    }
+
+    // 2. Chuyển đổi tọa độ thế giới của Keepsake ngoài vũ trụ sang không gian local của rootGroupRef
+    const livePose = liveKeepsakePoses[item.id];
+    let localOriginPos: THREE.Vector3;
+    let localOriginQuat: THREE.Quaternion;
+    let originScale: number;
+
+    if (livePose) {
+      localOriginPos = rootGroupRef.current.worldToLocal(livePose.pos.clone());
+      const rootWorldQuat = rootGroupRef.current.getWorldQuaternion(_tempRootQuat);
+      localOriginQuat = rootWorldQuat.clone().invert().multiply(livePose.quat);
+      originScale = livePose.scale;
+    } else {
       const originPos = selectedKeepsakeOrigin
         ? new THREE.Vector3(...selectedKeepsakeOrigin)
         : new THREE.Vector3(...item.initialPosition);
+      localOriginPos = rootGroupRef.current.worldToLocal(originPos.clone());
+      localOriginQuat = new THREE.Quaternion();
+      originScale = 1.0;
+    }
 
-      currentWorldPosRef.current.lerp(originPos, Math.min(1, delta * 7.5));
-      userRotRef.current.x = THREE.MathUtils.lerp(userRotRef.current.x, 0, delta * 7.5);
-      userRotRef.current.y = THREE.MathUtils.lerp(userRotRef.current.y, 0, delta * 7.5);
+    // 3. Hoạt ảnh quay trở lại không gian ngoài vũ trụ (khi người dùng bấm đóng hoặc chạm backdrop)
+    if (isReturningToSpace) {
+      if (!hasCapturedCloseStart.current) {
+        closeStartPos.current.copy(modelGroupRef.current.position);
+        closeStartQuat.current.copy(modelGroupRef.current.quaternion);
+        closeStartScale.current = modelGroupRef.current.scale.x;
+        hasCapturedCloseStart.current = true;
+      }
 
-      modelGroupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), Math.min(1, delta * 7.5));
-      modelGroupRef.current.position.z = THREE.MathUtils.lerp(modelGroupRef.current.position.z, 0, delta * 7.5);
+      closeTRef.current += delta / 0.68;
+      const t = Math.min(1.0, closeTRef.current);
+      const easeClose = t * t * (3 - 2 * t); // smoothstep ease
+
+      // Nội suy mượt mà tới tọa độ thực tế đang trôi dạt của Keepsake
+      modelGroupRef.current.position.lerpVectors(closeStartPos.current, localOriginPos, easeClose);
+      modelGroupRef.current.quaternion.slerpQuaternions(closeStartQuat.current, localOriginQuat, easeClose);
+      modelGroupRef.current.scale.setScalar(THREE.MathUtils.lerp(closeStartScale.current, originScale, easeClose));
 
       if (backdropRef.current) {
         const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
         if (mat) {
-          mat.opacity = THREE.MathUtils.lerp(mat.opacity, 0, delta * 8.0);
+          mat.opacity = (1 - easeClose) * 0.68;
         }
       }
 
-      rootGroupRef.current.position.copy(currentWorldPosRef.current);
+      // Vẫn duy trì chuyển động mềm mại của vật phẩm
+      if (item.id === 'clover-bracelet') {
+        animateSuppleBracelet(preparedScene, elapsed);
+      }
+      if (item.id === 'glass-bottle') {
+        animateGlassBottleRope(preparedScene, elapsed);
+        animateGlassBottleCapsules(preparedScene, elapsed, delta);
+      }
 
-      if (currentWorldPosRef.current.distanceTo(originPos) < 0.06) {
+      if (t >= 1.0) {
         clearSelection();
         setIsReturningToSpace(false);
+        hasCapturedCloseStart.current = false;
       }
       return;
     }
 
-    const inspectDist = item.id === 'glass-bottle' ? 2.45 : 2.65;
-
-    // 2. Bay mượt về ngay phía trước Camera
-    const camDir = new THREE.Vector3();
-    state.camera.getWorldDirection(camDir);
-    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(state.camera.quaternion);
-    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(state.camera.quaternion);
-
-    // Điểm đích cách mặt camera 2.65 đơn vị
-    const targetCenter = state.camera.position.clone().addScaledVector(camDir, inspectDist);
-    currentWorldPosRef.current.lerp(targetCenter, Math.min(1, delta * 6.5));
-
-    // Đặt tấm nền mờ luôn nằm phía sau vật phẩm (3.85 đơn vị) và hướng thẳng camera
-    if (backdropRef.current) {
-      backdropRef.current.position.copy(state.camera.position).addScaledVector(camDir, inspectDist + 1.2);
-      backdropRef.current.quaternion.copy(state.camera.quaternion);
-    }
-
-    // 3. Dao động lơ lửng không trọng lực và người dùng tự xoay
+    // 4. Tính toán tư thế hiển thị khi Inspect (trước ống kính camera)
     const floatY = Math.sin(elapsed * 1.7) * 0.045;
     const floatX = Math.cos(elapsed * 1.15) * 0.028;
 
-    rootGroupRef.current.position
-      .copy(currentWorldPosRef.current)
-      .addScaledVector(camUp, floatY)
-      .addScaledVector(camRight, floatX);
+    let inspectTargetX = floatX;
+    let inspectTargetY = floatY;
+    let inspectTargetZ = 0;
 
-    rootGroupRef.current.quaternion.copy(state.camera.quaternion);
+    if (item.id === 'glass-bottle') {
+      inspectTargetZ = activeLetterId !== null ? -1.15 : 0;
+    }
 
-    // Nghiêng bập bềnh nhẹ quanh góc mà người dùng đã xoay
-    modelGroupRef.current.rotation.x = userRotRef.current.x + Math.sin(elapsed * 1.35) * 0.055;
-    modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
-    modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
-
-    // Hiệu ứng rung lắc thân bình khi người dùng lắc điện thoại
-    modelGroupRef.current.position.x = 0;
+    // Rung lắc thân bình khi người dùng lắc thiết bị di động
     if (shakeImpulseRef.current > 0.001) {
-      modelGroupRef.current.position.x += Math.sin(elapsed * 42) * shakeImpulseRef.current * 0.08;
-      modelGroupRef.current.rotation.z += Math.cos(elapsed * 38) * shakeImpulseRef.current * 0.06;
+      inspectTargetX += Math.sin(elapsed * 42) * shakeImpulseRef.current * 0.08;
       shakeImpulseRef.current = THREE.MathUtils.damp(shakeImpulseRef.current, 0, 5, delta);
     }
 
-    // Tách biệt độ sâu Z: Khi đang mở/đọc thư hoặc đóng thư, giữ lọ thủy tinh lùi về phía sau (-1.15)
-    if (item.id === 'glass-bottle') {
-      const targetBottleZ = activeLetterId !== null ? -1.15 : 0;
-      modelGroupRef.current.position.z = THREE.MathUtils.lerp(
-        modelGroupRef.current.position.z,
-        targetBottleZ,
-        delta * 5.5,
-      );
-    } else {
-      modelGroupRef.current.position.z = 0;
+    const targetInspectPos = new THREE.Vector3(inspectTargetX, inspectTargetY, inspectTargetZ);
+
+    let rotX = userRotRef.current.x + Math.sin(elapsed * 1.35) * 0.055;
+    let rotY = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
+    let rotZ = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
+
+    if (shakeImpulseRef.current > 0.001) {
+      rotZ += Math.cos(elapsed * 38) * shakeImpulseRef.current * 0.06;
     }
 
-    // 4. Tự động co giãn theo khung hình thực tế để KHÔNG BAO GIỜ tràn màn hình
+    _tempEuler.set(rotX, rotY, rotZ, 'XYZ');
+    _tempTargetQuat.setFromEuler(_tempEuler);
+
+    // Tự động co giãn theo khung hình thực tế để không bị tràn màn hình
     const persp = state.camera as THREE.PerspectiveCamera;
     const fovRad = THREE.MathUtils.degToRad(persp.fov || 50);
     const visibleHeight = 2 * inspectDist * Math.tan(fovRad / 2);
@@ -243,9 +279,53 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     const fitScaleFactor = item.id === 'glass-bottle' ? 0.76 : 0.56;
     const fitScale = (currentMinDim * fitScaleFactor) / baseTargetSize;
     const finalScale = fitScale * zoomScale;
-    modelGroupRef.current.scale.setScalar(finalScale);
 
-    // Đung đưa mềm mại sợi dây vòng tay, nơ cổ chai và các viên nang trong bình
+    // 5. Hoạt ảnh bay vào (Open transition: 0.65s, easeOutCubic)
+    if (openTRef.current < 1.0) {
+      if (!hasCapturedOpenStart.current) {
+        openStartPos.current.copy(localOriginPos);
+        openStartQuat.current.copy(localOriginQuat);
+        openStartScale.current = originScale;
+        hasCapturedOpenStart.current = true;
+      }
+
+      openTRef.current = Math.min(1.0, openTRef.current + delta / 0.65);
+      const easeOpen = 1 - Math.pow(1 - openTRef.current, 3); // easeOutCubic
+
+      modelGroupRef.current.position.lerpVectors(openStartPos.current, targetInspectPos, easeOpen);
+      modelGroupRef.current.quaternion.slerpQuaternions(openStartQuat.current, _tempTargetQuat, easeOpen);
+      modelGroupRef.current.scale.setScalar(THREE.MathUtils.lerp(openStartScale.current, finalScale, easeOpen));
+
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        if (mat) {
+          mat.opacity = easeOpen * 0.68;
+        }
+      }
+    } else {
+      // Đã mở xong hoàn toàn: tương tác bình thường
+      if (item.id === 'glass-bottle') {
+        currentBottleZRef.current = THREE.MathUtils.lerp(
+          currentBottleZRef.current,
+          inspectTargetZ,
+          delta * 5.5,
+        );
+        targetInspectPos.z = currentBottleZRef.current;
+      }
+
+      modelGroupRef.current.position.copy(targetInspectPos);
+      modelGroupRef.current.quaternion.copy(_tempTargetQuat);
+      modelGroupRef.current.scale.setScalar(finalScale);
+
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        if (mat) {
+          mat.opacity = 0.68;
+        }
+      }
+    }
+
+    // 6. Đung đưa mềm mại sợi dây vòng tay, nơ cổ chai và các viên nang trong bình
     if (item.id === 'clover-bracelet') {
       animateSuppleBracelet(preparedScene, elapsed);
     }
@@ -391,6 +471,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   }, [item.id, isReturningToSpace]);
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+    if (isReturningToSpace || openTRef.current < 1.0) return;
     e.stopPropagation();
     setIsDragging(true);
     pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
@@ -418,7 +499,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   };
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    if (!isDragging) return;
+    if (!isDragging || isReturningToSpace || openTRef.current < 1.0) return;
     e.stopPropagation();
 
     if (activeLetterId !== null) return;
@@ -507,7 +588,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   };
 
   const handleWheel = (e: ThreeEvent<WheelEvent>) => {
-    if (activeLetterId !== null) return;
+    if (activeLetterId !== null || isReturningToSpace) return;
     e.stopPropagation();
     setZoomScale((prev) => Math.min(1.65, Math.max(0.55, prev - e.deltaY * 0.0015)));
   };
@@ -532,7 +613,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         <planeGeometry args={[100, 100]} />
         <meshBasicMaterial
           transparent
-          opacity={0.68}
+          opacity={0}
           color="#03040b"
           depthWrite={false}
           side={THREE.DoubleSide}

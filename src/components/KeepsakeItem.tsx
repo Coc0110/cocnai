@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import { RigidBody, RapierRigidBody, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { KeepsakeManifestItem } from '../types/universe';
-import { useUniverseStore } from '../store/useUniverseStore';
+import { useUniverseStore, liveKeepsakePoses } from '../store/useUniverseStore';
 import { computeGravityWellImpulse } from '../utils/physicsMath';
 import {
   prepareKeepsakeScene,
@@ -47,6 +47,8 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
     return (Math.abs(hash % 1000) / 100) + 1.0;
   }, [item.id]);
 
+  const _tempScaleVec = useMemo(() => new THREE.Vector3(), []);
+
   const [isPointerDown, setIsPointerDown] = useState(false);
   const dragPlaneRef = useRef<THREE.Plane>(new THREE.Plane());
   const dragOffsetRef = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -64,21 +66,20 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
   }, [item.id]);
 
   useFrame((state, delta) => {
-    if (!rigidBodyRef.current || isSelected) {
-      if (isSelected) {
-        delete sharedEntityPositions.keepsakes[item.id];
-      }
-      return;
-    }
+    if (!rigidBodyRef.current) return;
 
     const elapsed = state.clock.getElapsedTime();
     const pos = rigidBodyRef.current.translation();
 
-    // Đồng bộ tọa độ toàn cục để các thực thể khác (companions) né tránh
-    if (!sharedEntityPositions.keepsakes[item.id]) {
-      sharedEntityPositions.keepsakes[item.id] = new THREE.Vector3();
+    // Đồng bộ tọa độ toàn cục để các thực thể khác (companions) né tránh khi không được xem
+    if (!isSelected) {
+      if (!sharedEntityPositions.keepsakes[item.id]) {
+        sharedEntityPositions.keepsakes[item.id] = new THREE.Vector3();
+      }
+      sharedEntityPositions.keepsakes[item.id].set(pos.x, pos.y, pos.z);
+    } else {
+      delete sharedEntityPositions.keepsakes[item.id];
     }
-    sharedEntityPositions.keepsakes[item.id].set(pos.x, pos.y, pos.z);
 
     // 1. Chuyển động trôi lơ lửng rõ rệt trong không gian (khi không bị kéo)
     if (!isDraggingThis) {
@@ -119,12 +120,32 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       }
     }
 
-    if (item.id === 'clover-bracelet') {
-      animateSuppleBracelet(preparedScene, elapsed);
+    // 2. Luôn cập nhật ma trận thế giới và lưu liveKeepsakePoses ngay cả khi đang inspect
+    if (visualGroupRef.current) {
+      visualGroupRef.current.visible = !isSelected;
+      visualGroupRef.current.updateMatrixWorld(true);
+
+      if (!liveKeepsakePoses[item.id]) {
+        liveKeepsakePoses[item.id] = {
+          pos: new THREE.Vector3(),
+          quat: new THREE.Quaternion(),
+          scale: 1,
+        };
+      }
+      visualGroupRef.current.getWorldPosition(liveKeepsakePoses[item.id].pos);
+      visualGroupRef.current.getWorldQuaternion(liveKeepsakePoses[item.id].quat);
+      const ws = visualGroupRef.current.getWorldScale(_tempScaleVec);
+      liveKeepsakePoses[item.id].scale = ws.x || 1;
     }
-    if (item.id === 'glass-bottle') {
-      animateGlassBottleRope(preparedScene, elapsed);
-      animateGlassBottleCapsules(preparedScene, elapsed, delta);
+
+    if (!isSelected) {
+      if (item.id === 'clover-bracelet') {
+        animateSuppleBracelet(preparedScene, elapsed);
+      }
+      if (item.id === 'glass-bottle') {
+        animateGlassBottleRope(preparedScene, elapsed);
+        animateGlassBottleCapsules(preparedScene, elapsed, delta);
+      }
     }
   });
 
@@ -231,7 +252,22 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
         : { x: item.initialPosition[0], y: item.initialPosition[1], z: item.initialPosition[2] };
 
       if (distPx < 8) {
-        // Chạm tĩnh (click) -> Chọn vật phẩm để bay về phía trước ống kính
+        // Chạm tĩnh (click) -> Lưu tư thế live và chọn vật phẩm để bay về phía trước ống kính
+        if (visualGroupRef.current) {
+          visualGroupRef.current.updateMatrixWorld(true);
+          if (!liveKeepsakePoses[item.id]) {
+            liveKeepsakePoses[item.id] = {
+              pos: new THREE.Vector3(),
+              quat: new THREE.Quaternion(),
+              scale: 1,
+            };
+          }
+          visualGroupRef.current.getWorldPosition(liveKeepsakePoses[item.id].pos);
+          visualGroupRef.current.getWorldQuaternion(liveKeepsakePoses[item.id].quat);
+          const ws = visualGroupRef.current.getWorldScale(_tempScaleVec);
+          liveKeepsakePoses[item.id].scale = ws.x || 1;
+        }
+
         if (item.id === 'glass-bottle') {
           requestDeviceMotionPermission();
         }
@@ -271,8 +307,7 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
     >
       <BallCollider args={[item.radius * 1.18]} restitution={0.6} />
       <group
-        visible={!isSelected}
-        onPointerDown={handlePointerDown}
+        onPointerDown={!isSelected ? handlePointerDown : undefined}
       >
         <group ref={visualGroupRef}>
           <primitive object={preparedScene} />
