@@ -39,7 +39,7 @@ export default function App(): JSX.Element {
     >
       <Canvas
         dpr={[1, 1.75]}
-        camera={{ position: [0, 0, 9], fov: 50, near: 0.1, far: 500 }}
+        camera={{ position: [0, 0, 9], fov: 78, near: 0.1, far: 500 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
         onPointerMissed={() => useUniverseStore.getState().clearSelection()}
       >
