@@ -56,6 +56,8 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     localStartQuat: THREE.Quaternion;
     localMouthPos: THREE.Vector3;
     startHolderScale: number;
+    targetCapsule?: THREE.Object3D;
+    preparedScene?: THREE.Group;
   } | null>(null);
 
   const [minVisibleDim, setMinVisibleDim] = useState(3.0);
@@ -192,9 +194,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     modelGroupRef.current.rotation.y = userRotRef.current.y + Math.cos(elapsed * 1.05) * 0.065;
     modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 + 0.8) * 0.038;
 
-    // Tách biệt độ sâu Z: Khi đang mở/đọc thư, đẩy nhẹ lọ thủy tinh lùi về phía sau (-1.15)
+    // Tách biệt độ sâu Z: Khi đang mở/đọc thư hoặc đóng thư, giữ lọ thủy tinh lùi về phía sau (-1.15)
     if (item.id === 'glass-bottle') {
-      const targetBottleZ = activeLetterId !== null && !isClosingLetter ? -1.15 : 0;
+      const targetBottleZ = activeLetterId !== null ? -1.15 : 0;
       modelGroupRef.current.position.z = THREE.MathUtils.lerp(
         modelGroupRef.current.position.z,
         targetBottleZ,
@@ -284,6 +286,8 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       localStartQuat,
       localMouthPos,
       startHolderScale,
+      targetCapsule,
+      preparedScene,
     });
     setActiveLetterId(capId);
     setIsClosingLetter(false);
@@ -423,6 +427,8 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
             localStartQuat={unrollerData.localStartQuat}
             localMouthPos={unrollerData.localMouthPos}
             startHolderScale={unrollerData.startHolderScale}
+            targetCapsule={unrollerData.targetCapsule}
+            preparedScene={unrollerData.preparedScene}
             minVisibleDim={minVisibleDim}
             isClosing={isClosingLetter}
             onFinishClose={handleFinishCloseLetter}

@@ -10,6 +10,8 @@ interface ActiveCapsuleUnrollerProps {
   localStartQuat: THREE.Quaternion;
   localMouthPos: THREE.Vector3;
   startHolderScale: number;
+  targetCapsule?: THREE.Object3D;
+  preparedScene?: THREE.Group;
   minVisibleDim?: number;
   isClosing: boolean;
   onFinishClose: () => void;
@@ -17,12 +19,25 @@ interface ActiveCapsuleUnrollerProps {
   onRequestClose: () => void;
 }
 
+// Scratch vectors cho tính toán động học live
+const _dynStartPos = new THREE.Vector3();
+const _dynStartQuat = new THREE.Quaternion();
+const _dynMouthPos = new THREE.Vector3();
+const _dynAboveMouthPos = new THREE.Vector3();
+const _tempWorldPos = new THREE.Vector3();
+const _tempWorldQuat = new THREE.Quaternion();
+const _tempContainerQuat = new THREE.Quaternion();
+const _tempClosedPos = new THREE.Vector3();
+const _tempCtrl = new THREE.Vector3();
+
 export function ActiveCapsuleUnroller({
   letter,
   localStartPos,
   localStartQuat,
   localMouthPos,
   startHolderScale,
+  targetCapsule,
+  preparedScene,
   isClosing,
   onFinishClose,
   onReadingReady,
@@ -110,11 +125,6 @@ export function ActiveCapsuleUnroller({
   // Đích dừng chính giữa trước ống kính (ở hẳn phía trước z = 0.35)
   const localTargetPos = useMemo(() => new THREE.Vector3(0, 0, 0.35), []);
 
-  // Điểm neo cao hơn miệng lọ để viên nang chui thẳng ra ngoài miệng lọ
-  const aboveMouthPos = useMemo(() => {
-    return localMouthPos.clone().add(new THREE.Vector3(0, 0.35, 0));
-  }, [localMouthPos]);
-
   // Góc xoay khi đến trước camera: Máy tính nằm ngang (Z = PI/2), Điện thoại nằm dọc (Z = 0)
   const targetQuat = useMemo(() => {
     const euler = isMobile ? new THREE.Euler(0, 0, 0) : new THREE.Euler(0, 0, Math.PI / 2);
@@ -124,7 +134,40 @@ export function ActiveCapsuleUnroller({
   useFrame((state, delta) => {
     const elapsed = state.clock.getElapsedTime();
 
-    // 1. Quản lý thời gian mở / đóng thư
+    // 1. Đọc vị trí và góc xoay thế giới thực tế của viên thuốc đích trong lọ (khi lọ đang ở z = -1.15)
+    _dynStartPos.copy(localStartPos);
+    _dynStartQuat.copy(localStartQuat);
+    _dynMouthPos.copy(localMouthPos);
+
+    if (containerRef.current && targetCapsule) {
+      targetCapsule.getWorldPosition(_tempWorldPos);
+      containerRef.current.worldToLocal(_tempWorldPos);
+      _dynStartPos.copy(_tempWorldPos);
+
+      targetCapsule.getWorldQuaternion(_tempWorldQuat);
+      containerRef.current.getWorldQuaternion(_tempContainerQuat);
+      _tempWorldQuat.premultiply(_tempContainerQuat.invert());
+      _dynStartQuat.copy(_tempWorldQuat);
+    }
+
+    if (containerRef.current && preparedScene) {
+      const corkNode = preparedScene.userData.corkNode as THREE.Object3D | undefined;
+      if (corkNode && corkNode.userData.closedPos) {
+        _tempClosedPos.copy(corkNode.userData.closedPos as THREE.Vector3);
+        const mouthWorld = corkNode.parent ? corkNode.parent.localToWorld(_tempClosedPos) : _tempClosedPos;
+        containerRef.current.worldToLocal(mouthWorld);
+        _dynMouthPos.copy(mouthWorld);
+      } else {
+        _tempClosedPos.set(0, 6.8, 0);
+        const mouthWorld = preparedScene.localToWorld(_tempClosedPos);
+        containerRef.current.worldToLocal(mouthWorld);
+        _dynMouthPos.copy(mouthWorld);
+      }
+    }
+
+    _dynAboveMouthPos.copy(_dynMouthPos).add(new THREE.Vector3(0, 0.35, 0));
+
+    // 2. Quản lý thời gian mở / đóng thư
     if (isClosing) {
       // Đóng ngược lại: lùi thời gian từ 3.15 về 0.0
       openTimeRef.current = Math.max(0, openTimeRef.current - delta * 1.35);
@@ -159,30 +202,30 @@ export function ActiveCapsuleUnroller({
       let curQuat: THREE.Quaternion;
 
       if (p1 < 0.45) {
-        // Nửa đầu (0.0 -> 0.45): Bay thẳng từ vị trí trong bình chui qua miệng lọ
+        // Nửa đầu (0.0 -> 0.45): Bay giữa vị trí trong bình và miệng lọ
         const s1 = p1 / 0.45;
         const ease1 = s1 * s1 * (3 - 2 * s1);
-        curPos = new THREE.Vector3().lerpVectors(localStartPos, aboveMouthPos, ease1);
+        curPos = new THREE.Vector3().lerpVectors(_dynStartPos, _dynAboveMouthPos, ease1);
         curScale = startHolderScale;
-        curQuat = localStartQuat.clone();
+        curQuat = _dynStartQuat.clone();
       } else {
-        // Nửa sau (0.45 -> 1.0): Lượn từ trên miệng lọ ra vị trí trước camera, scale to dần
+        // Nửa sau (0.45 -> 1.0): Lượn giữa trên miệng lọ và vị trí trước camera, scale to dần
         const s2 = (p1 - 0.45) / 0.55;
         const ease2 = s2 * s2 * (3 - 2 * s2);
-        const ctrl = aboveMouthPos
-          .clone()
+        _tempCtrl
+          .copy(_dynAboveMouthPos)
           .add(localTargetPos)
           .multiplyScalar(0.5)
           .add(new THREE.Vector3(0, 0.12, 0.22));
 
         curPos = new THREE.Vector3()
-          .copy(aboveMouthPos)
+          .copy(_dynAboveMouthPos)
           .multiplyScalar((1 - ease2) * (1 - ease2))
-          .addScaledVector(ctrl, 2 * (1 - ease2) * ease2)
+          .addScaledVector(_tempCtrl, 2 * (1 - ease2) * ease2)
           .addScaledVector(localTargetPos, ease2 * ease2);
 
         curScale = THREE.MathUtils.lerp(startHolderScale, targetHolderScale, ease2);
-        curQuat = new THREE.Quaternion().slerpQuaternions(localStartQuat, targetQuat, ease2);
+        curQuat = new THREE.Quaternion().slerpQuaternions(_dynStartQuat, targetQuat, ease2);
       }
 
       if (capsuleHolderRef.current) {
