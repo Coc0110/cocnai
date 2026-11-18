@@ -234,9 +234,10 @@ export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number
     -(_charmWorldDelta.y * 1.5 + _charmRotLever.y * 1.2) / dt,
     -(_charmWorldDelta.z * 2.2 + _charmRotLever.z * 1.8) / dt,
   );
-  _charmTargetTrail.clampLength(0, 0.26);
+  _charmTargetTrail.clampLength(0, 0.48);
 
   trailOffset.lerp(_charmTargetTrail, Math.min(1, delta * 9.0));
+  trailOffset.clampLength(0, 0.48);
 
   lastWorldPos.copy(_curCharmWorldPos);
   lastWorldQuat.copy(_curCharmWorldQuat);
@@ -251,13 +252,13 @@ export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number
     const y0 = stringOrigCoords[cIdx + 1];
     const z0 = stringOrigCoords[cIdx + 2];
 
-    const s = Math.min(1, Math.max(0, (0.165 - y0) / 0.665));
+    const s = Math.min(1, Math.max(0, (0.28 - y0) / 1.28));
     const w = Math.pow(s, 1.45);
 
     // Uốn lượn chữ S không trọng lực (không duỗi thẳng):
-    const waveX = w * 0.055 * Math.sin(elapsed * 1.6 - s * 4.2) + s * (1 - s) * 0.038 * Math.cos(elapsed * 2.2);
-    const waveZ = w * 0.048 * Math.cos(elapsed * 1.4 - s * 3.8) + s * (1 - s) * 0.032 * Math.sin(elapsed * 1.9);
-    const slackY = w * (0.048 + 0.018 * Math.sin(elapsed * 1.8 + s * 3.5));
+    const waveX = w * 0.11 * Math.sin(elapsed * 1.6 - s * 4.2) + s * (1 - s) * 0.075 * Math.cos(elapsed * 2.2);
+    const waveZ = w * 0.095 * Math.cos(elapsed * 1.4 - s * 3.8) + s * (1 - s) * 0.065 * Math.sin(elapsed * 1.9);
+    const slackY = w * (0.095 + 0.035 * Math.sin(elapsed * 1.8 + s * 3.5));
 
     // Cộng quán tính bị kéo theo (trailOffset) và bù chiều dài dây khi bị kéo ngang:
     const dx = waveX + trailOffset.x * w;
@@ -1072,7 +1073,7 @@ export function prepareKeepsakeScene(
     });
   }
 
-  // 4. KỶ VẬT TREO LƠ LỬNG (hanging-charm): Tách InterleavedBuffer, lọc đỉnh sợi dây phía dưới (y0 < 0.165)
+  // 4. KỶ VẬT TREO LƠ LỬNG (hanging-charm): Tách InterleavedBuffer, lọc đỉnh sợi dây phía dưới (y0 < 0.28)
   if (item.id === 'hanging-charm') {
     cloned.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
@@ -1082,37 +1083,48 @@ export function prepareKeepsakeScene(
         const srcUv = srcGeo.attributes.uv;
         const count = srcPos.count;
 
-        const cleanPos = new Float32Array(count * 3);
-        const cleanUv = new Float32Array(count * 2);
+        const isInterleaved =
+          Boolean((srcPos as unknown as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute ||
+                  (srcUv && (srcUv as unknown as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute));
 
-        for (let i = 0; i < count; i++) {
-          cleanPos[i * 3] = srcPos.getX(i);
-          cleanPos[i * 3 + 1] = srcPos.getY(i);
-          cleanPos[i * 3 + 2] = srcPos.getZ(i);
-          if (srcUv) {
-            cleanUv[i * 2] = srcUv.getX(i);
-            cleanUv[i * 2 + 1] = srcUv.getY(i);
+        let geo: THREE.BufferGeometry;
+
+        if (isInterleaved) {
+          const cleanPos = new Float32Array(count * 3);
+          const cleanUv = new Float32Array(count * 2);
+
+          for (let i = 0; i < count; i++) {
+            cleanPos[i * 3] = srcPos.getX(i);
+            cleanPos[i * 3 + 1] = srcPos.getY(i);
+            cleanPos[i * 3 + 2] = srcPos.getZ(i);
+            if (srcUv) {
+              cleanUv[i * 2] = srcUv.getX(i);
+              cleanUv[i * 2 + 1] = srcUv.getY(i);
+            }
           }
+
+          geo = new THREE.BufferGeometry();
+          if (srcGeo.index) {
+            geo.setIndex(srcGeo.index.clone());
+          }
+          geo.setAttribute('position', new THREE.BufferAttribute(cleanPos, 3));
+          if (srcUv) {
+            geo.setAttribute('uv', new THREE.BufferAttribute(cleanUv, 2));
+          }
+        } else {
+          geo = srcGeo.clone();
         }
 
-        const geo = new THREE.BufferGeometry();
-        if (srcGeo.index) {
-          geo.setIndex(srcGeo.index.clone());
-        }
-        geo.setAttribute('position', new THREE.BufferAttribute(cleanPos, 3));
-        if (srcUv) {
-          geo.setAttribute('uv', new THREE.BufferAttribute(cleanUv, 2));
-        }
-
-        // Lọc trước danh sách các đỉnh thuộc sợi dây phía dưới (y0 < 0.165)
+        // Lọc trước danh sách các đỉnh thuộc sợi dây phía dưới (y0 < 0.28)
+        const yTop = 0.28;
         const stringIndicesArr: number[] = [];
         const stringCoordsArr: number[] = [];
 
         for (let i = 0; i < count; i++) {
-          const y0 = cleanPos[i * 3 + 1];
-          if (y0 < 0.165) {
+          const y0 = srcPos.getY(i);
+          if (y0 < yTop) {
             stringIndicesArr.push(i);
-            stringCoordsArr.push(cleanPos[i * 3], y0, cleanPos[i * 3 + 2]);
+            stringCoordsArr.push(srcPos.getX(i), y0, srcPos.getZ(i));
           }
         }
 
@@ -1129,15 +1141,22 @@ export function prepareKeepsakeScene(
         if (oldMat?.map) {
           oldMat.map.colorSpace = THREE.SRGBColorSpace;
           oldMat.map.needsUpdate = true;
+          mesh.material = new THREE.MeshStandardMaterial({
+            map: oldMat.map,
+            roughnessMap: oldMat.roughnessMap || null,
+            metalnessMap: oldMat.metalnessMap || null,
+            roughness: 0.45,
+            metalness: 0.08,
+            side: THREE.DoubleSide,
+          });
+        } else {
+          mesh.material = new THREE.MeshStandardMaterial({
+            color: '#fce7f3',
+            roughness: 0.45,
+            metalness: 0.08,
+            side: THREE.DoubleSide,
+          });
         }
-        mesh.material = new THREE.MeshStandardMaterial({
-          map: oldMat?.map || null,
-          roughnessMap: oldMat?.roughnessMap || null,
-          metalnessMap: oldMat?.metalnessMap || null,
-          roughness: 0.45,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-        });
       }
     });
 
