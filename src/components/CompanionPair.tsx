@@ -25,7 +25,7 @@ function getRandomWaypoint(
 ): THREE.Vector3 {
   const tiers =
     floorY !== undefined
-      ? [floorY, floorY + 1.25, floorY + 2.5, floorY + 3.75]
+      ? [floorY - 0.65, floorY, floorY + 0.65, floorY + 1.35]
       : Y_TIERS;
 
   let y: number;
@@ -35,6 +35,10 @@ function getRandomWaypoint(
     y = currentTierY;
   } else {
     y = tiers[Math.floor(Math.random() * tiers.length)];
+  }
+
+  if (floorY !== undefined) {
+    y = THREE.MathUtils.clamp(y, floorY - 0.85, floorY + 1.65);
   }
 
   // Quãng đường di chuyển mỗi lần vừa phải (bán kính 1.6 đến 3.8)
@@ -842,7 +846,10 @@ function CompanionEntity({
       }
     });
 
-    curPos.x = THREE.MathUtils.clamp(curPos.x, -3.8, 3.8);
+    const minY = floorY !== undefined ? floorY - 0.85 : -3.5;
+    const maxY = floorY !== undefined ? floorY + 1.65 : 2.5;
+    curPos.x = THREE.MathUtils.clamp(curPos.x, -maxX, maxX);
+    curPos.y = THREE.MathUtils.clamp(curPos.y, minY, maxY);
     curPos.z = THREE.MathUtils.clamp(curPos.z, -3.0, 2.6);
     groupRef.current.position.copy(curPos);
 
@@ -1544,16 +1551,17 @@ export function CompanionPair(): JSX.Element {
   const dist = Math.abs(camera.position.z - companionZ);
   const visH = 2 * dist * Math.tan(THREE.MathUtils.degToRad(fovDeg) / 2);
   const visW = visH * (size.width / Math.max(1, size.height));
-  const cornerX = visW * 0.36;
-  const bottomY = -visH * 0.42;
+  const isMobile = size.width < size.height || size.width < 768;
+  const cornerX = isMobile ? visW * 0.28 : visW * 0.30;
+  const homeY = -0.19 * visH;
 
   const froakieInitialPos = useMemo<[number, number, number]>(
-    () => [-cornerX, bottomY, companionZ],
-    [cornerX, bottomY, companionZ],
+    () => [-cornerX, homeY, companionZ],
+    [cornerX, homeY, companionZ],
   );
   const deerlingInitialPos = useMemo<[number, number, number]>(
-    () => [cornerX, bottomY, companionZ],
-    [cornerX, bottomY, companionZ],
+    () => [cornerX, homeY, companionZ],
+    [cornerX, homeY, companionZ],
   );
 
   const froakiePosRef = useRef<THREE.Vector3>(new THREE.Vector3(...froakieInitialPos));
@@ -1629,8 +1637,8 @@ export function CompanionPair(): JSX.Element {
         otherPosRef={deerlingPosRef}
         rippleManager={rippleManager}
         isMeeting={isMeeting}
-        floorY={bottomY}
-        maxX={visW * 0.42}
+        floorY={homeY}
+        maxX={isMobile ? visW * 0.38 : visW * 0.40}
       />
 
       {/* Deerling (Nai) - Chống trượt chân (Moonwalk), nhảy chuyển tầng, ăn cỏ, ngửi mùi */}
@@ -1643,8 +1651,8 @@ export function CompanionPair(): JSX.Element {
         otherPosRef={froakiePosRef}
         rippleManager={rippleManager}
         isMeeting={isMeeting}
-        floorY={bottomY}
-        maxX={visW * 0.42}
+        floorY={homeY}
+        maxX={isMobile ? visW * 0.38 : visW * 0.40}
       />
     </group>
   );

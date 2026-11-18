@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
@@ -10,7 +10,10 @@ import {
   TwoFingerCameraController,
   OrbitControlsLike,
 } from './components/TwoFingerCameraController';
-import { setupEarlyMotionPermission } from './utils/deviceMotionPermission';
+import {
+  requestDeviceMotionPermission,
+  setupEarlyMotionPermission,
+} from './utils/deviceMotionPermission';
 import { useUniverseStore } from './store/useUniverseStore';
 import { KeepsakeManifestItem } from './types/universe';
 import rawKeepsakes from './data/keepsakes.json';
@@ -18,6 +21,7 @@ import rawKeepsakes from './data/keepsakes.json';
 const keepsakes = rawKeepsakes as KeepsakeManifestItem[];
 
 export default function App(): JSX.Element {
+  const [needsFirstTouch, setNeedsFirstTouch] = useState(true);
   const selectedKeepsakeId = useUniverseStore((s) => s.selectedKeepsakeId);
   const draggingKeepsakeId = useUniverseStore((s) => s.draggingKeepsakeId);
   const controlsRef = useRef<OrbitControlsLike>(null);
@@ -81,6 +85,20 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Canvas>
+
+      {needsFirstTouch && (
+        <div
+          className="fixed inset-0 z-[9999] bg-transparent cursor-pointer"
+          onClick={() => {
+            void requestDeviceMotionPermission();
+            setNeedsFirstTouch(false);
+          }}
+          onTouchEnd={() => {
+            void requestDeviceMotionPermission();
+            setNeedsFirstTouch(false);
+          }}
+        />
+      )}
     </div>
   );
 }
