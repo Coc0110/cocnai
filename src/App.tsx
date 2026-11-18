@@ -1,4 +1,4 @@
-import { Suspense, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
@@ -10,6 +10,7 @@ import {
   TwoFingerCameraController,
   OrbitControlsLike,
 } from './components/TwoFingerCameraController';
+import { setupEarlyMotionPermission } from './utils/deviceMotionPermission';
 import { useUniverseStore } from './store/useUniverseStore';
 import { KeepsakeManifestItem } from './types/universe';
 import rawKeepsakes from './data/keepsakes.json';
@@ -20,6 +21,10 @@ export default function App(): JSX.Element {
   const selectedKeepsakeId = useUniverseStore((s) => s.selectedKeepsakeId);
   const draggingKeepsakeId = useUniverseStore((s) => s.draggingKeepsakeId);
   const controlsRef = useRef<OrbitControlsLike>(null);
+
+  useEffect(() => {
+    return setupEarlyMotionPermission();
+  }, []);
 
   const isControlsEnabled = selectedKeepsakeId === null && draggingKeepsakeId === null;
 
