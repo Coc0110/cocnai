@@ -198,70 +198,121 @@ export function ActiveCapsuleUnroller({
       }
     }
 
-    // =========================================================================
-    // Giai đoạn 2 (0.95s -> 1.55s): Tách vỏ & Vỏ luôn lơ lửng trong khung hình
-    // =========================================================================
-    const p2 = Math.min(1, Math.max(0, (t - 0.95) / 0.60));
-    const ease2 = p2 * p2 * (3 - 2 * p2);
+    // Hệ số quy đổi từ không gian hiển thị (containerRef) sang không gian cục bộ của capsuleObj
+    const invScale = 1.0 / Math.max(0.05, targetHolderScale * (capsuleObj.scale.x || 1.06));
 
+    // =========================================================================
+    // Giai đoạn 2, 3, 4: Điều khiển 2 nửa vỏ nhựa (topShell & bottomShell)
+    // =========================================================================
     if (topShell && bottomShell) {
       topShell.visible = true;
       bottomShell.visible = true;
 
-      const bobTop = Math.sin(elapsed * 1.5) * 0.04;
-      const bobBot = Math.cos(elapsed * 1.3) * 0.04;
-
-      if (!isMobile) {
-        // Máy tính: Tách sang 2 bên trái/phải theo trục Y cục bộ (viên nang nằm ngang rot.z = PI/2)
-        const targetTopY = 1.15 + bobTop;
-        const targetBotY = -1.15 + bobBot;
+      if (t < 0.95) {
+        topShell.position.set(0, 0, 0);
+        bottomShell.position.set(0, 0, 0);
+      } else if (t < 1.55) {
+        // Giai đoạn 2 (0.95s -> 1.55s): Tách 2 nửa vỏ dọc theo trục viên nang (±0.65)
+        const p2 = (t - 0.95) / 0.60;
+        const ease2 = p2 * p2 * (3 - 2 * p2);
 
         topShell.position.x = 0;
-        topShell.position.y = THREE.MathUtils.lerp(0, targetTopY, ease2);
+        topShell.position.y = THREE.MathUtils.lerp(0, 0.65, ease2);
         topShell.position.z = THREE.MathUtils.lerp(0, -0.15, ease2);
 
         bottomShell.position.x = 0;
-        bottomShell.position.y = THREE.MathUtils.lerp(0, targetBotY, ease2);
+        bottomShell.position.y = THREE.MathUtils.lerp(0, -0.65, ease2);
         bottomShell.position.z = THREE.MathUtils.lerp(0, -0.15, ease2);
       } else {
-        // Điện thoại: Tách lên trên (+Y) và xuống dưới (-Y)
-        const targetTopY = 0.85 + bobTop;
-        const targetBotY = -0.85 + bobBot;
+        // Giai đoạn 3 & 4 (t >= 1.55s): Dịch chuyển ra ngoài viền lá thư & lùi ra sau mặt phẳng thư
+        const p34 = Math.min(1, (t - 1.55) / 0.60);
+        const ease34 = p34 * p34 * (3 - 2 * p34);
 
-        topShell.position.x = 0;
-        topShell.position.y = THREE.MathUtils.lerp(0, targetTopY, ease2);
-        topShell.position.z = THREE.MathUtils.lerp(0, -0.15, ease2);
+        const bobTop = Math.sin(elapsed * 1.5) * (0.04 * invScale);
+        const bobBot = Math.cos(elapsed * 1.3) * (0.04 * invScale);
 
-        bottomShell.position.x = 0;
-        bottomShell.position.y = THREE.MathUtils.lerp(0, targetBotY, ease2);
-        bottomShell.position.z = THREE.MathUtils.lerp(0, -0.15, ease2);
+        if (!isMobile) {
+          // Trên Máy tính (rotation.z = Math.PI / 2, nơi localX là trục dọc màn hình +screenY):
+          // Đưa 2 nửa vỏ ra khoảng trống phía dưới mép dưới lá thư (localX < 0)
+          const targetShellX = -(targetH / 2 + 0.24) * invScale;
+          const targetTopY = (targetW * 0.28) * invScale;
+          const targetBotY = -(targetW * 0.28) * invScale;
+          const targetZ = -0.26 * invScale;
+
+          topShell.position.x = THREE.MathUtils.lerp(0, targetShellX + bobTop, ease34);
+          topShell.position.y = THREE.MathUtils.lerp(0.65, targetTopY, ease34);
+          topShell.position.z = THREE.MathUtils.lerp(-0.15, targetZ, ease34);
+
+          bottomShell.position.x = THREE.MathUtils.lerp(0, targetShellX + bobBot, ease34);
+          bottomShell.position.y = THREE.MathUtils.lerp(-0.65, targetBotY, ease34);
+          bottomShell.position.z = THREE.MathUtils.lerp(-0.15, targetZ, ease34);
+        } else {
+          // Trên Điện thoại (rotation.z = 0):
+          // Đưa topShell lên trên mép trên (+Y) và bottomShell xuống dưới mép dưới (-Y)
+          const targetTopY = +(targetH / 2 + 0.24) * invScale;
+          const targetBotY = -(targetH / 2 + 0.24) * invScale;
+          const targetZ = -0.26 * invScale;
+
+          topShell.position.x = 0;
+          topShell.position.y = THREE.MathUtils.lerp(0.65, targetTopY + bobTop, ease34);
+          topShell.position.z = THREE.MathUtils.lerp(-0.15, targetZ, ease34);
+
+          bottomShell.position.x = 0;
+          bottomShell.position.y = THREE.MathUtils.lerp(-0.65, targetBotY + bobBot, ease34);
+          bottomShell.position.z = THREE.MathUtils.lerp(-0.15, targetZ, ease34);
+        }
       }
     }
 
     // =========================================================================
-    // Giai đoạn 3 (1.55s -> 2.15s): Vòng vàng tuột dọc thân & Cuộn giấy chuẩn bị mở
+    // Giai đoạn 3 & 4: Vòng vàng tuột khỏi cuộn thư & lơ lửng phía trên mép thư
     // =========================================================================
     const p3 = Math.min(1, Math.max(0, (t - 1.55) / 0.60));
 
     if (goldRing) {
       goldRing.visible = true;
-      if (p3 <= 0.65) {
-        // Bước 3A (0.0 -> 0.65): Trượt thẳng dọc trục cuộn thư từ 0 đến +0.56 ra khỏi đầu cuộn
-        const s3A = p3 / 0.65;
-        const ease3A = s3A * s3A * (3 - 2 * s3A);
-        goldRing.position.x = 0;
-        goldRing.position.y = THREE.MathUtils.lerp(0, 0.56, ease3A);
-        goldRing.position.z = 0;
+
+      if (t < 1.55) {
+        goldRing.position.set(0, 0, 0);
         goldRing.rotation.set(Math.PI / 2, 0, 0);
       } else {
-        // Bước 3B (0.65 -> 1.0): Trôi nhẹ sang góc bên cạnh và lơ lửng nhẹ
-        const s3B = (p3 - 0.65) / 0.35;
-        const ease3B = s3B * s3B * (3 - 2 * s3B);
-        const bobRing = Math.sin(elapsed * 1.8 + 1.0) * 0.035;
-        goldRing.position.x = THREE.MathUtils.lerp(0, 0.45, ease3B);
-        goldRing.position.y = THREE.MathUtils.lerp(0.56, 0.68 + bobRing, ease3B);
-        goldRing.position.z = THREE.MathUtils.lerp(0, -0.12, ease3B);
-        goldRing.rotation.set(Math.PI / 2, 0, 0);
+
+        if (p3 <= 0.65) {
+          // Bước 3A (0.0 -> 0.65): Trượt thẳng dọc trục cuộn thư từ 0 đến +0.56 ra khỏi đầu cuộn
+          const s3A = p3 / 0.65;
+          const ease3A = s3A * s3A * (3 - 2 * s3A);
+          goldRing.position.x = 0;
+          goldRing.position.y = THREE.MathUtils.lerp(0, 0.56, ease3A);
+          goldRing.position.z = 0;
+          goldRing.rotation.set(Math.PI / 2, 0, 0);
+        } else {
+          // Bước 3B (0.65 -> 1.0) & Giai đoạn 4: Dịch chuyển mượt ra phía trên mép lá thư & lùi ra sau
+          const s3B = t < 2.15 ? (p3 - 0.65) / 0.35 : 1.0;
+          const ease3B = Math.min(1, Math.max(0, s3B * s3B * (3 - 2 * s3B)));
+          const bobRing = Math.sin(elapsed * 1.8 + 1.0) * (0.035 * invScale);
+
+          if (!isMobile) {
+            // Máy tính (rotation.z = Math.PI / 2, nơi +localX là hướng lên trên màn hình +screenY):
+            const targetRingX = +(targetH / 2 + 0.22) * invScale;
+            const targetRingY = 0.35 * invScale;
+            const targetRingZ = -0.24 * invScale;
+
+            goldRing.position.x = THREE.MathUtils.lerp(0, targetRingX + bobRing, ease3B);
+            goldRing.position.y = THREE.MathUtils.lerp(0.56, targetRingY, ease3B);
+            goldRing.position.z = THREE.MathUtils.lerp(0, targetRingZ, ease3B);
+            goldRing.rotation.set(Math.PI / 2, 0, 0);
+          } else {
+            // Điện thoại (rotation.z = 0, nơi +localY là hướng lên trên màn hình +screenY):
+            const targetRingX = 0.25 * invScale;
+            const targetRingY = +(targetH / 2 + 0.22) * invScale;
+            const targetRingZ = -0.24 * invScale;
+
+            goldRing.position.x = THREE.MathUtils.lerp(0, targetRingX, ease3B);
+            goldRing.position.y = THREE.MathUtils.lerp(0.56, targetRingY + bobRing, ease3B);
+            goldRing.position.z = THREE.MathUtils.lerp(0, targetRingZ, ease3B);
+            goldRing.rotation.set(Math.PI / 2, 0, 0);
+          }
+        }
       }
     }
 
