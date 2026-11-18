@@ -21,14 +21,20 @@ function getRandomWaypoint(
   currentTierY?: number,
   partnerTierY?: number,
   maxX: number = 3.7,
+  floorY?: number,
 ): THREE.Vector3 {
+  const tiers =
+    floorY !== undefined
+      ? [floorY, floorY + 1.25, floorY + 2.5, floorY + 3.75]
+      : Y_TIERS;
+
   let y: number;
   if (partnerTierY !== undefined && Math.random() < 0.65) {
     y = partnerTierY;
   } else if (currentTierY !== undefined && Math.random() < 0.70) {
     y = currentTierY;
   } else {
-    y = Y_TIERS[Math.floor(Math.random() * Y_TIERS.length)];
+    y = tiers[Math.floor(Math.random() * tiers.length)];
   }
 
   // Quãng đường di chuyển mỗi lần vừa phải (bán kính 1.6 đến 3.8)
@@ -486,6 +492,8 @@ interface CompanionEntityProps {
   otherPosRef: React.MutableRefObject<THREE.Vector3>;
   rippleManager: RippleManager;
   isMeeting: boolean;
+  floorY?: number;
+  maxX?: number;
 }
 
 function CompanionEntity({
@@ -497,9 +505,11 @@ function CompanionEntity({
   otherPosRef,
   rippleManager,
   isMeeting,
+  floorY,
+  maxX: customMaxX,
 }: CompanionEntityProps) {
   const { viewport } = useThree();
-  const maxX = Math.max(1.3, viewport.width * 0.36);
+  const maxX = customMaxX ?? Math.max(1.3, viewport.width * 0.36);
 
   const [modelScene, setModelScene] = useState<THREE.Object3D | null>(null);
   const [eyeTextures, setEyeTextures] = useState<EyeTextureSet | null>(null);
@@ -656,13 +666,13 @@ function CompanionEntity({
       setEyeTextures(eyeTexSet);
       setModelScene(scene);
 
-      targetPosRef.current = getRandomWaypoint(initialPos[1], undefined, maxX);
+      targetPosRef.current = getRandomWaypoint(initialPos[1], undefined, maxX, floorY);
     });
 
     return () => {
       isCancelled = true;
     };
-  }, [id, daeUrl, targetHeight, initialPos]);
+  }, [id, daeUrl, targetHeight, initialPos, floorY, maxX]);
 
   useFrame((threeState, delta) => {
     if (!groupRef.current || !modelInnerRef.current || !eyeTextures) return;
@@ -860,7 +870,7 @@ function CompanionEntity({
 
         if (timer >= deerlingDurationRef.current) {
           startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX, floorY);
           if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
             deerlingStateRef.current = 'LEAP_LAYER';
           } else {
@@ -921,7 +931,7 @@ function CompanionEntity({
 
         if (timer >= sleepDuration) {
           startPosRef.current.copy(curPos);
-          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
+          targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX, floorY);
           if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
             deerlingStateRef.current = 'LEAP_LAYER';
           } else {
@@ -1231,7 +1241,7 @@ function CompanionEntity({
             deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX, floorY);
             if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
               deerlingStateRef.current = 'LEAP_LAYER';
             } else {
@@ -1259,7 +1269,7 @@ function CompanionEntity({
             deerlingDurationRef.current = 5.0 + Math.random() * 2.5;
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX, floorY);
             if (Math.abs(targetPosRef.current.y - curPos.y) > 0.45) {
               deerlingStateRef.current = 'LEAP_LAYER';
             } else {
@@ -1303,7 +1313,7 @@ function CompanionEntity({
             froakieStateRef.current = 'WAVE_CAMERA';
           } else {
             startPosRef.current.copy(curPos);
-            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX);
+            targetPosRef.current = getRandomWaypoint(curPos.y, otherPosRef.current.y, maxX, floorY);
             froakieStateRef.current = 'HOP_MOVE';
           }
           froakieStateTimerRef.current = 0;
@@ -1527,17 +1537,23 @@ function CompanionEntity({
 // COMPONENT ĐIỀU PHỐI CHÍNH (COMPANION PAIR)
 // =============================================================================
 export function CompanionPair(): JSX.Element {
-  const { viewport } = useThree();
-  const cornerX = Math.min(2.2, Math.max(0.95, viewport.width * 0.33));
-  const bottomY = -1.75;
+  const { camera, size } = useThree();
+  const perspCam = camera as THREE.PerspectiveCamera;
+  const companionZ = 0.4;
+  const fovDeg = perspCam.fov || 78;
+  const dist = Math.abs(camera.position.z - companionZ);
+  const visH = 2 * dist * Math.tan(THREE.MathUtils.degToRad(fovDeg) / 2);
+  const visW = visH * (size.width / Math.max(1, size.height));
+  const cornerX = visW * 0.36;
+  const bottomY = -visH * 0.42;
 
   const froakieInitialPos = useMemo<[number, number, number]>(
-    () => [-cornerX, bottomY, 0.4],
-    [cornerX],
+    () => [-cornerX, bottomY, companionZ],
+    [cornerX, bottomY, companionZ],
   );
   const deerlingInitialPos = useMemo<[number, number, number]>(
-    () => [cornerX, bottomY, 0.4],
-    [cornerX],
+    () => [cornerX, bottomY, companionZ],
+    [cornerX, bottomY, companionZ],
   );
 
   const froakiePosRef = useRef<THREE.Vector3>(new THREE.Vector3(...froakieInitialPos));
@@ -1613,6 +1629,8 @@ export function CompanionPair(): JSX.Element {
         otherPosRef={deerlingPosRef}
         rippleManager={rippleManager}
         isMeeting={isMeeting}
+        floorY={bottomY}
+        maxX={visW * 0.42}
       />
 
       {/* Deerling (Nai) - Chống trượt chân (Moonwalk), nhảy chuyển tầng, ăn cỏ, ngửi mùi */}
@@ -1625,6 +1643,8 @@ export function CompanionPair(): JSX.Element {
         otherPosRef={froakiePosRef}
         rippleManager={rippleManager}
         isMeeting={isMeeting}
+        floorY={bottomY}
+        maxX={visW * 0.42}
       />
     </group>
   );

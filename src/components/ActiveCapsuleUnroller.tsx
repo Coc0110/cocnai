@@ -364,8 +364,8 @@ export function ActiveCapsuleUnroller({
           const s3B = t < 2.15 ? (p3 - 0.65) / 0.35 : 1.0;
           const ease3B = Math.min(1, Math.max(0, s3B * s3B * (3 - 2 * s3B)));
 
-          const bobRingY = Math.sin(elapsed * 1.7 + 1.0) * (0.085 * fovScale * invScale);
-          const bobRingX = Math.cos(elapsed * 1.3 + 0.5) * (0.055 * fovScale * invScale);
+          const bobRingY = Math.sin(elapsed * 1.5 + 1.0) * (0.042 * fovScale * invScale);
+          const bobRingX = Math.cos(elapsed * 1.2 + 0.5) * (0.025 * fovScale * invScale);
 
           if (!isMobile) {
             // Máy tính (rotation.z = Math.PI / 2, nơi +localX là hướng lên trên màn hình +screenY):
@@ -389,11 +389,11 @@ export function ActiveCapsuleUnroller({
 
           goldRing.rotation.x = THREE.MathUtils.lerp(
             Math.PI / 2,
-            Math.PI / 2 - 0.38 + Math.sin(elapsed * 1.6) * 0.12,
+            Math.PI / 2 - 0.35 + Math.sin(elapsed * 1.4) * 0.05,
             ease3B,
           );
-          goldRing.rotation.y = THREE.MathUtils.lerp(0, 0.32 + Math.cos(elapsed * 1.4) * 0.10, ease3B);
-          goldRing.rotation.z = THREE.MathUtils.lerp(0, -0.25 + Math.sin(elapsed * 1.2) * 0.08, ease3B);
+          goldRing.rotation.y = THREE.MathUtils.lerp(0, 0.28 + Math.cos(elapsed * 1.2) * 0.045, ease3B);
+          goldRing.rotation.z = THREE.MathUtils.lerp(0, -0.22 + Math.sin(elapsed * 1.1) * 0.04, ease3B);
         }
       }
     }
@@ -462,11 +462,11 @@ export function ActiveCapsuleUnroller({
 
     // Khi đã mở hoàn tất (t >= 3.15), cho phép người dùng xoay và zoom ngắm thư
     if (paperGroupRef.current) {
-      const floatX = Math.cos(elapsed * 1.15) * (0.022 * fovScale);
-      const floatY = Math.sin(elapsed * 1.65) * (0.032 * fovScale);
-      const idleRotX = Math.sin(elapsed * 1.3) * 0.045;
-      const idleRotY = Math.cos(elapsed * 1.05) * 0.055;
-      const idleRotZ = Math.sin(elapsed * 1.4 + 0.7) * 0.022;
+      const floatX = Math.cos(elapsed * 1.1) * (0.012 * fovScale);
+      const floatY = Math.sin(elapsed * 1.5) * (0.016 * fovScale);
+      const idleRotX = Math.sin(elapsed * 1.2) * 0.020;
+      const idleRotY = Math.cos(elapsed * 0.95) * 0.025;
+      const idleRotZ = Math.sin(elapsed * 1.3 + 0.7) * 0.010;
 
       paperGroupRef.current.position.set(floatX, floatY, 0.35 * fovScale);
       paperGroupRef.current.rotation.set(

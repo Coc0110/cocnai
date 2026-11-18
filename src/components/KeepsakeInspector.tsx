@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, ThreeEvent } from '@react-three/fiber';
-import { useGLTF, Html } from '@react-three/drei';
+import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { KeepsakeManifestItem, LetterItem } from '../types/universe';
 import { useUniverseStore, liveKeepsakePoses } from '../store/useUniverseStore';
@@ -68,6 +68,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
   const lastActionTimeRef = useRef<number>(0);
   const upsideDownStartRef = useRef<number | null>(null);
   const pointerDownOnCorkRef = useRef(false);
+  const isWaitingCorkCloseRef = useRef(false);
 
   // Đồng bộ ref để tránh stale closure trong devicemotion & setTimeout
   const isCorkOpenRef = useRef(isCorkOpen);
@@ -116,6 +117,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     setZoomScale(1.0);
     setIsCorkOpen(false);
     setIsReturningToSpace(false);
+    isWaitingCorkCloseRef.current = false;
     handleFinishCloseLetter();
   }, [item.id, selectedKeepsakeOrigin]);
 
@@ -207,6 +209,11 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       const t = Math.min(1.0, closeTRef.current);
       const easeClose = t * t * (3 - 2 * t); // smoothstep ease
 
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        mat.opacity = (1 - easeClose) * 0.28;
+      }
+
       // Nội suy mượt mà tới tọa độ thực tế đang trôi dạt của Keepsake
       modelGroupRef.current.position.lerpVectors(closeStartPos.current, localOriginPos, easeClose);
       modelGroupRef.current.quaternion.slerpQuaternions(closeStartQuat.current, localOriginQuat, easeClose);
@@ -291,11 +298,21 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       openTRef.current = Math.min(1.0, openTRef.current + delta / 0.65);
       const easeOpen = 1 - Math.pow(1 - openTRef.current, 3); // easeOutCubic
 
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        mat.opacity = easeOpen * 0.28;
+      }
+
       modelGroupRef.current.position.lerpVectors(openStartPos.current, targetInspectPos, easeOpen);
       modelGroupRef.current.quaternion.slerpQuaternions(openStartQuat.current, _tempTargetQuat, easeOpen);
       modelGroupRef.current.scale.setScalar(THREE.MathUtils.lerp(openStartScale.current, finalScale, easeOpen));
     } else {
       // Đã mở xong hoàn toàn: tương tác bình thường
+      if (backdropRef.current) {
+        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.28;
+      }
+
       if (item.id === 'glass-bottle') {
         currentBottleZRef.current = THREE.MathUtils.lerp(
           currentBottleZRef.current,
@@ -329,8 +346,16 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
           : closedPos;
         const targetRotZ = isCorkOpen ? -0.5 : closedRot.z;
 
-        corkNode.position.lerp(targetPos, Math.min(1, delta * 5.0));
-        corkNode.rotation.z = THREE.MathUtils.lerp(corkNode.rotation.z, targetRotZ, Math.min(1, delta * 5.0));
+        const corkLerpSpeed = isCorkOpen ? 5.0 : 9.0;
+        corkNode.position.lerp(targetPos, Math.min(1, delta * corkLerpSpeed));
+        corkNode.rotation.z = THREE.MathUtils.lerp(corkNode.rotation.z, targetRotZ, Math.min(1, delta * corkLerpSpeed));
+
+        if (isWaitingCorkCloseRef.current && corkNode.position.distanceTo(closedPos) < 0.06) {
+          corkNode.position.copy(closedPos);
+          corkNode.rotation.z = closedRot.z;
+          isWaitingCorkCloseRef.current = false;
+          setIsReturningToSpace(true);
+        }
       }
     }
     if (item.id === 'hanging-charm') {
@@ -593,8 +618,10 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
           } else if (!isReturningToSpace) {
             if (item.id === 'glass-bottle' && isCorkOpen) {
               setIsCorkOpen(false);
+              isWaitingCorkCloseRef.current = true;
+            } else {
+              setIsReturningToSpace(true);
             }
-            setIsReturningToSpace(true);
           }
         }}
       >
@@ -602,17 +629,14 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         <meshBasicMaterial
           transparent
           opacity={0}
-          colorWrite={false}
+          color="#03040b"
+          colorWrite={true}
           depthWrite={false}
           side={THREE.DoubleSide}
         />
       </mesh>
 
       <group ref={rootGroupRef}>
-        {/* Soft auxiliary illumination for 360 inspection without harsh glare */}
-        <pointLight position={[0, 1.8, 2.2]} intensity={0.25} color="#ffffff" distance={10} />
-        <pointLight position={[0, -1.8, -1.5]} intensity={0.15} color="#f0abfc" distance={10} />
-
         <group
           ref={modelGroupRef}
           onPointerDown={handlePointerDown}
@@ -647,21 +671,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
           />
         )}
       </group>
-
-      {/* HTML UI Overlay: Hướng dẫn mở nắp / chọn thư */}
-      <Html fullscreen style={{ pointerEvents: 'none' }}>
-        {item.id === 'glass-bottle' && !isCorkOpen && activeLetterId === null && !isReturningToSpace && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-200 border border-amber-400/30 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none animate-pulse">
-            <span>💡</span> Chạm / Vuốt lên nút bần hoặc Lắc để mở nắp lọ
-          </div>
-        )}
-
-        {item.id === 'glass-bottle' && isCorkOpen && activeLetterId === null && !isReturningToSpace && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2 rounded-full bg-slate-900/80 text-amber-300 border border-amber-400/40 shadow-lg text-xs md:text-sm font-medium backdrop-blur-md flex items-center gap-2 pointer-events-none select-none">
-            <span>✨</span> Chạm viên thuốc hoặc Lắc / Dốc ngược lọ để mở thư
-          </div>
-        )}
-      </Html>
     </>
   );
 }
