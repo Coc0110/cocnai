@@ -142,9 +142,79 @@ class RippleManager {
   }
 }
 
+const RIPPLE_VERTEX_SHADER = /* glsl */ `
+  uniform float uProgress;
+  varying vec2 vUv;
+
+  void main() {
+    vUv = uv;
+    vec3 pos = position;
+    float r = length(uv - 0.5) * 2.0;
+    float wavePhase = (r - uProgress * 0.78) * 26.0;
+    float diff = r - uProgress * 0.68;
+    float envelope = exp(-16.0 * diff * diff) * smoothstep(1.0, 0.75, r) * smoothstep(0.0, 0.06, r);
+    pos.z += sin(wavePhase) * envelope * 0.035 * (1.0 - uProgress);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const RIPPLE_FRAGMENT_SHADER = /* glsl */ `
+  uniform float uProgress;
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying vec2 vUv;
+
+  void main() {
+    float r = length(vUv - 0.5) * 2.0;
+    if (r > 1.0) {
+      discard;
+    }
+
+    float wavePhase = (r - uProgress * 0.78) * 26.0;
+    float diff = r - uProgress * 0.68;
+    float envelope = exp(-16.0 * diff * diff) * smoothstep(1.0, 0.75, r) * smoothstep(0.0, 0.06, r);
+    float crests = pow(max(0.0, cos(wavePhase)), 2.2) * envelope;
+    float centerDrop = exp(-28.0 * r * r) * pow(max(0.0, 1.0 - uProgress), 2.0) * 0.55;
+
+    vec3 col = mix(uColor, vec3(1.0), crests * 0.55);
+    float alpha = (crests + centerDrop) * uOpacity * (1.0 - pow(clamp(uProgress, 0.0, 1.0), 1.4));
+    if (alpha <= 0.001) {
+      discard;
+    }
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+function createRippleMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uProgress: { value: 0 },
+      uColor: { value: new THREE.Color() },
+      uOpacity: { value: 0 },
+    },
+    vertexShader: RIPPLE_VERTEX_SHADER,
+    fragmentShader: RIPPLE_FRAGMENT_SHADER,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+}
+
 function SpaceRippleMeshSystem({ manager }: { manager: RippleManager }) {
   const groupRef = useRef<THREE.Group>(null);
-  const ringGeom = useMemo(() => new THREE.RingGeometry(0.85, 1.0, 32), []);
+  const planeGeom = useMemo(() => new THREE.PlaneGeometry(2, 2, 48, 48), []);
+  const materials = useMemo(
+    () => Array.from({ length: MAX_RIPPLES }, () => createRippleMaterial()),
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      planeGeom.dispose();
+      materials.forEach((m) => m.dispose());
+    };
+  }, [planeGeom, materials]);
 
   useFrame((state) => {
     if (!groupRef.current) return;
@@ -154,64 +224,43 @@ function SpaceRippleMeshSystem({ manager }: { manager: RippleManager }) {
 
     for (let i = 0; i < MAX_RIPPLES; i++) {
       const r = pool[i];
-      const rGroup = children[i] as THREE.Group | undefined;
-      if (!rGroup) continue;
+      const mesh = children[i] as THREE.Mesh | undefined;
+      if (!mesh) continue;
 
       if (!r.active) {
-        rGroup.visible = false;
+        mesh.visible = false;
         continue;
       }
 
       const p = (elapsed - r.startTime) / r.duration;
       if (p >= 1.0 || p < 0) {
         r.active = false;
-        rGroup.visible = false;
+        mesh.visible = false;
         continue;
       }
 
-      rGroup.visible = true;
-      rGroup.position.set(r.x, r.y + 0.012, r.z);
+      mesh.visible = true;
+      mesh.position.set(r.x, r.y + 0.012, r.z);
+      mesh.scale.set(r.maxRadius, r.maxRadius, 1);
 
-      const radius = THREE.MathUtils.lerp(r.startRadius, r.maxRadius, Math.sqrt(p));
-      const opacity = r.maxOpacity * (1 - p);
-
-      // Vòng sóng chính
-      const mesh1 = rGroup.children[0] as THREE.Mesh;
-      if (mesh1) {
-        mesh1.scale.set(radius, radius, 1);
-        const mat = mesh1.material as THREE.MeshBasicMaterial;
-        mat.color.copy(r.color);
-        mat.opacity = opacity;
-      }
-
-      // Vòng sóng phụ (gợn sóng kép khi chuyển tầng / gặp nhau)
-      const mesh2 = rGroup.children[1] as THREE.Mesh;
-      if (mesh2) {
-        if (r.isDouble) {
-          mesh2.visible = true;
-          const r2 = radius * 0.65;
-          mesh2.scale.set(r2, r2, 1);
-          const mat2 = mesh2.material as THREE.MeshBasicMaterial;
-          mat2.color.copy(r.color);
-          mat2.opacity = opacity * 0.75;
-        } else {
-          mesh2.visible = false;
-        }
-      }
+      const mat = mesh.material as THREE.ShaderMaterial;
+      mat.uniforms.uProgress.value = p;
+      mat.uniforms.uColor.value.copy(r.color);
+      mat.uniforms.uOpacity.value = r.maxOpacity;
     }
   });
 
   return (
     <group ref={groupRef}>
       {Array.from({ length: MAX_RIPPLES }).map((_, i) => (
-        <group key={i} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
-          <mesh geometry={ringGeom} raycast={() => null}>
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
-          </mesh>
-          <mesh geometry={ringGeom} raycast={() => null} visible={false}>
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
-          </mesh>
-        </group>
+        <mesh
+          key={i}
+          geometry={planeGeom}
+          material={materials[i]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          visible={false}
+          raycast={() => null}
+        />
       ))}
     </group>
   );
@@ -883,23 +932,29 @@ function CompanionEntity({
           curPos.y = THREE.MathUtils.lerp(curPos.y, targetPos.y, delta * 3.0);
 
           if (tCycle < 0.24) {
-            // Pha 1: Nhún lấy đà tại chỗ (0.0 <= tCycle < 0.24)
+            // Pha 1: Nhún lấy đà tại chỗ (0.0 <= tCycle < 0.24) - Nhịp nhún duy nhất
             const dip = Math.sin((tCycle / 0.24) * Math.PI * 0.85);
             modelInnerRef.current.position.y = 0;
             modelInnerRef.current.rotation.x = 0;
             if (bones['waist']) {
-              bones['waist'].position.set(0, 0.257 - 0.027 * dip, -0.039);
+              bones['waist'].position.set(0, 0.257 - 0.024 * dip, -0.039);
             }
 
-            rotateBoneLocal(bones['left_arm_01'], 0, 0.22 * dip, 0);
-            rotateBoneLocal(bones['right_arm_01'], 0, 0.22 * dip, 0);
-            rotateBoneLocal(bones['left_arm_02'], 0, 0.45 * dip, 0);
-            rotateBoneLocal(bones['right_arm_02'], 0, 0.45 * dip, 0);
+            // Chân trước: bắp trên xoay ÂM bù trừ với khớp gối xoay DƯƠNG để móng chân bám cố định trên sàn
+            rotateBoneLocal(bones['left_arm_01'], 0, -0.24 * dip, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, -0.24 * dip, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.44 * dip, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.44 * dip, 0);
+            rotateBoneLocal(bones['left_hand'], 0, -0.20 * dip, 0);
+            rotateBoneLocal(bones['right_hand'], 0, -0.20 * dip, 0);
 
-            rotateBoneLocal(bones['left_leg_01'], 0, -0.24 * dip, 0);
-            rotateBoneLocal(bones['right_leg_01'], 0, -0.24 * dip, 0);
-            rotateBoneLocal(bones['left_leg_02'], 0, 0.42 * dip, 0);
-            rotateBoneLocal(bones['right_leg_02'], 0, 0.42 * dip, 0);
+            // Chân sau
+            rotateBoneLocal(bones['left_leg_01'], 0, -0.22 * dip, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, -0.22 * dip, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.40 * dip, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.40 * dip, 0);
+            rotateBoneLocal(bones['left_foot'], 0, -0.18 * dip, 0);
+            rotateBoneLocal(bones['right_foot'], 0, -0.18 * dip, 0);
 
             rotateBoneLocal(bones['neck'], 0, -0.10 * dip, 0);
             rotateBoneLocal(bones['head'], 0, 0.05 * dip, 0);
@@ -926,19 +981,19 @@ function CompanionEntity({
               bones['waist'].position.set(0, 0.257, -0.039);
             }
 
-            // Ở nửa cuối Pha 2 (pAir > 0.5), duỗi dần gối trước về 0 theo (1 - pAir) * 2 để chân trước duỗi thẳng đón đất
-            const foldMultiplier = pAir > 0.5 ? Math.max(0, (1 - pAir) * 2) : 1.0;
-            const frontFold = Math.sin(Math.min(1, pAir * 1.35) * Math.PI) * foldMultiplier;
+            // Ở nửa sau cú nhảy (pAir > 0.45), giảm mượt góc gập của cả 4 chân về 0 theo 1 - smoothstep(pAir, 0.45, 1.0)
+            const foldMultiplier =
+              pAir > 0.45 ? 1.0 - THREE.MathUtils.smoothstep(pAir, 0.45, 1.0) : 1.0;
 
-            rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc, 0);
-            rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc, 0);
-            rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * frontFold, 0);
-            rotateBoneLocal(bones['right_arm_02'], 0, 0.95 * frontFold, 0);
+            rotateBoneLocal(bones['left_arm_01'], 0, -0.42 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['right_arm_01'], 0, -0.42 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['left_arm_02'], 0, 0.95 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['right_arm_02'], 0, 0.95 * hopArc * foldMultiplier, 0);
 
-            rotateBoneLocal(bones['left_leg_01'], 0, 0.38 * hopArc, 0);
-            rotateBoneLocal(bones['right_leg_01'], 0, 0.38 * hopArc, 0);
-            rotateBoneLocal(bones['left_leg_02'], 0, 0.28 * hopArc, 0);
-            rotateBoneLocal(bones['right_leg_02'], 0, 0.28 * hopArc, 0);
+            rotateBoneLocal(bones['left_leg_01'], 0, 0.38 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['right_leg_01'], 0, 0.38 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['left_leg_02'], 0, 0.28 * hopArc * foldMultiplier, 0);
+            rotateBoneLocal(bones['right_leg_02'], 0, 0.28 * hopArc * foldMultiplier, 0);
 
             rotateBoneLocal(bones['neck'], 0, 0.22 * hopArc, 0);
             rotateBoneLocal(bones['head'], 0, -0.10 * hopArc, 0);
@@ -946,32 +1001,19 @@ function CompanionEntity({
             rotateBoneLocal(bones['right_ear'], 0, 0, -0.24 * hopArc);
             rotateBoneLocal(bones['tail'], 0, -0.35 * hopArc, Math.sin(elapsed * 8.0) * 0.20);
           } else {
-            // Pha 3: Tiếp đất giảm chấn (0.80 <= tCycle <= 1.0)
-            const cushion = Math.sin(((tCycle - 0.80) / 0.20) * Math.PI);
-
+            // Pha 3: Tiếp đất êm ái (0.80 <= tCycle <= 1.0) - BỎ nhịp nhún thừa
             modelInnerRef.current.position.y = 0;
             modelInnerRef.current.rotation.x = THREE.MathUtils.lerp(
               modelInnerRef.current.rotation.x,
               0,
-              delta * 12.0,
+              delta * 14.0,
             );
 
             if (bones['waist']) {
-              bones['waist'].position.set(0, 0.257 - 0.022 * cushion, -0.039);
+              bones['waist'].position.set(0, 0.257, -0.039);
             }
 
-            rotateBoneLocal(bones['left_arm_01'], 0, 0.16 * cushion, 0);
-            rotateBoneLocal(bones['right_arm_01'], 0, 0.16 * cushion, 0);
-            rotateBoneLocal(bones['left_arm_02'], 0, 0.34 * cushion, 0);
-            rotateBoneLocal(bones['right_arm_02'], 0, 0.34 * cushion, 0);
-
-            rotateBoneLocal(bones['left_leg_01'], 0, -0.18 * cushion, 0);
-            rotateBoneLocal(bones['right_leg_01'], 0, -0.18 * cushion, 0);
-            rotateBoneLocal(bones['left_leg_02'], 0, 0.32 * cushion, 0);
-            rotateBoneLocal(bones['right_leg_02'], 0, 0.32 * cushion, 0);
-
-            rotateBoneLocal(bones['neck'], 0, 0.05 * cushion, 0);
-            rotateBoneLocal(bones['head'], 0, 0, 0);
+            // Toàn bộ 4 chân giữ nguyên ở tư thế đứng thẳng (đã được resetAllBones ở đầu frame)
             rotateBoneLocal(bones['left_ear'], 0, 0, Math.sin(elapsed * 3.0) * 0.08);
             rotateBoneLocal(bones['right_ear'], 0, 0, -Math.sin(elapsed * 3.0) * 0.08);
             rotateBoneLocal(bones['tail'], 0, 0, Math.sin(elapsed * 4.5) * 0.15);
@@ -983,9 +1025,9 @@ function CompanionEntity({
                 curPos.y,
                 curPos.z,
                 '#fbcfe8',
-                0.08,
-                0.65,
-                0.85,
+                0.06,
+                0.48,
+                1.05,
                 0.60,
                 false,
                 elapsed,
@@ -1040,9 +1082,9 @@ function CompanionEntity({
             curPos.y,
             curPos.z,
             '#f9a8d4',
-            0.15,
+            0.08,
+            0.72,
             1.35,
-            1.2,
             0.75,
             true,
             elapsed,
@@ -1258,16 +1300,17 @@ function CompanionEntity({
           modelInnerRef.current.rotation.x = 0;
           applyFrogSitPose(bones, 0);
 
+          const isLayerHop = Math.abs(targetPos.y - startPos.y) > 0.45;
           rippleManager.add(
             curPos.x,
             curPos.y,
             curPos.z,
             '#7dd3fc',
-            0.15,
-            1.35,
-            1.2,
-            0.75,
-            true,
+            isLayerHop ? 0.08 : 0.06,
+            isLayerHop ? 0.72 : 0.48,
+            isLayerHop ? 1.35 : 1.05,
+            isLayerHop ? 0.75 : 0.60,
+            isLayerHop,
             elapsed,
           );
 
@@ -1332,10 +1375,10 @@ function CompanionEntity({
       currentPosRef.current.y,
       currentPosRef.current.z,
       id === 'froakie' ? '#7dd3fc' : '#f9a8d4',
-      0.15,
+      0.08,
+      0.72,
       1.35,
-      1.2,
-      0.8,
+      0.75,
       true,
     );
   };
@@ -1401,10 +1444,10 @@ export function CompanionPair(): JSX.Element {
           froakiePosRef.current.y,
           froakiePosRef.current.z,
           '#7dd3fc',
-          0.15,
-          1.5,
-          1.8,
-          0.8,
+          0.08,
+          0.72,
+          1.35,
+          0.75,
           true,
           elapsed,
         );
@@ -1413,10 +1456,10 @@ export function CompanionPair(): JSX.Element {
           deerlingPosRef.current.y,
           deerlingPosRef.current.z,
           '#f9a8d4',
-          0.15,
-          1.5,
-          1.8,
-          0.8,
+          0.08,
+          0.72,
+          1.35,
+          0.75,
           true,
           elapsed,
         );
