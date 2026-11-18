@@ -634,6 +634,12 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
           onPointerUp={handlePointerUp}
           onWheel={handleWheel}
         >
+          {item.id === 'clover-bracelet' && (
+            <mesh visible={true}>
+              <sphereGeometry args={[0.85, 16, 16]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+            </mesh>
+          )}
           <primitive object={preparedScene} />
         </group>
 

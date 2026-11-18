@@ -309,6 +309,18 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       <group
         onPointerDown={!isSelected ? handlePointerDown : undefined}
       >
+        <mesh visible={!isSelected}>
+          <sphereGeometry
+            args={[
+              item.id === 'clover-bracelet'
+                ? (item.radius || 0.65) * 1.25
+                : (item.radius || 0.65) * 0.95,
+              16,
+              16,
+            ]}
+          />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+        </mesh>
         <group ref={visualGroupRef}>
           <primitive object={preparedScene} />
         </group>
