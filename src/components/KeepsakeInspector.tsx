@@ -212,13 +212,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       modelGroupRef.current.quaternion.slerpQuaternions(closeStartQuat.current, localOriginQuat, easeClose);
       modelGroupRef.current.scale.setScalar(THREE.MathUtils.lerp(closeStartScale.current, originScale, easeClose));
 
-      if (backdropRef.current) {
-        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
-        if (mat) {
-          mat.opacity = (1 - easeClose) * 0.68;
-        }
-      }
-
       // Vẫn duy trì chuyển động mềm mại của vật phẩm
       if (item.id === 'clover-bracelet') {
         animateSuppleBracelet(preparedScene, elapsed);
@@ -301,13 +294,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       modelGroupRef.current.position.lerpVectors(openStartPos.current, targetInspectPos, easeOpen);
       modelGroupRef.current.quaternion.slerpQuaternions(openStartQuat.current, _tempTargetQuat, easeOpen);
       modelGroupRef.current.scale.setScalar(THREE.MathUtils.lerp(openStartScale.current, finalScale, easeOpen));
-
-      if (backdropRef.current) {
-        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
-        if (mat) {
-          mat.opacity = easeOpen * 0.68;
-        }
-      }
     } else {
       // Đã mở xong hoàn toàn: tương tác bình thường
       if (item.id === 'glass-bottle') {
@@ -322,13 +308,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
       modelGroupRef.current.position.copy(targetInspectPos);
       modelGroupRef.current.quaternion.copy(_tempTargetQuat);
       modelGroupRef.current.scale.setScalar(finalScale);
-
-      if (backdropRef.current) {
-        const mat = backdropRef.current.material as THREE.MeshBasicMaterial;
-        if (mat) {
-          mat.opacity = 0.68;
-        }
-      }
     }
 
     // 6. Đung đưa mềm mại sợi dây vòng tay, nơ cổ chai và các viên nang trong bình
@@ -623,16 +602,16 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         <meshBasicMaterial
           transparent
           opacity={0}
-          color="#03040b"
+          colorWrite={false}
           depthWrite={false}
           side={THREE.DoubleSide}
         />
       </mesh>
 
       <group ref={rootGroupRef}>
-        {/* Focused illumination for 360 inspection */}
-        <pointLight position={[0, 1.8, 2.2]} intensity={2.5} color="#ffffff" distance={10} />
-        <pointLight position={[0, -1.8, -1.5]} intensity={1.2} color="#f0abfc" distance={10} />
+        {/* Soft auxiliary illumination for 360 inspection without harsh glare */}
+        <pointLight position={[0, 1.8, 2.2]} intensity={0.25} color="#ffffff" distance={10} />
+        <pointLight position={[0, -1.8, -1.5]} intensity={0.15} color="#f0abfc" distance={10} />
 
         <group
           ref={modelGroupRef}

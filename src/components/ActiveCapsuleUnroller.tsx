@@ -81,7 +81,7 @@ export function ActiveCapsuleUnroller({
     const distToPaper = 2.10;
     const visH = 2 * distToPaper * Math.tan(THREE.MathUtils.degToRad(fovDeg) / 2);
     const visW = visH * (size.width / Math.max(1, size.height));
-    const w = Math.min(2.1 * fovScale, visW * (isMobile ? 0.86 : 0.72));
+    const w = Math.min(2.0 * fovScale, visW * (isMobile ? 0.76 : 0.68));
     const h = w / letter.aspectRatio;
 
     // Chiều dài cuộn giấy scrollRoll trong capsuleObj là 0.94 * scaleY
@@ -462,13 +462,21 @@ export function ActiveCapsuleUnroller({
 
     // Khi đã mở hoàn tất (t >= 3.15), cho phép người dùng xoay và zoom ngắm thư
     if (paperGroupRef.current) {
-      paperGroupRef.current.position.set(0, 0, 0.35 * fovScale);
+      const floatX = Math.cos(elapsed * 1.15) * (0.022 * fovScale);
+      const floatY = Math.sin(elapsed * 1.65) * (0.032 * fovScale);
+      const idleRotX = Math.sin(elapsed * 1.3) * 0.045;
+      const idleRotY = Math.cos(elapsed * 1.05) * 0.055;
+      const idleRotZ = Math.sin(elapsed * 1.4 + 0.7) * 0.022;
+
+      paperGroupRef.current.position.set(floatX, floatY, 0.35 * fovScale);
+      paperGroupRef.current.rotation.set(
+        userLetterRotRef.current.x + idleRotX,
+        userLetterRotRef.current.y + idleRotY,
+        idleRotZ,
+      );
       if (t >= 3.15) {
-        paperGroupRef.current.rotation.y = userLetterRotRef.current.y;
-        paperGroupRef.current.rotation.x = userLetterRotRef.current.x;
         paperGroupRef.current.scale.setScalar(zoomScale);
       } else {
-        paperGroupRef.current.rotation.set(0, 0, 0);
         paperGroupRef.current.scale.setScalar(1.0);
       }
     }
@@ -519,12 +527,43 @@ export function ActiveCapsuleUnroller({
     };
   }, [zoomScale]);
 
+  // Hỗ trợ xoay 3D mượt mà tự do khắp màn hình khi người dùng kéo ngón tay / chuột
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleWindowPointerMove = (e: PointerEvent) => {
+      const dx = e.clientX - lastPointerRef.current.x;
+      const dy = e.clientY - lastPointerRef.current.y;
+      userLetterRotRef.current.y += dx * 0.012;
+      userLetterRotRef.current.x += dy * 0.012;
+      lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleWindowPointerUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('pointermove', handleWindowPointerMove);
+    window.addEventListener('pointerup', handleWindowPointerUp);
+    window.addEventListener('pointercancel', handleWindowPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerUp);
+      window.removeEventListener('pointercancel', handleWindowPointerUp);
+    };
+  }, [isDragging]);
+
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     if (openTimeRef.current < 3.15 || isClosing) return;
     e.stopPropagation();
     setIsDragging(true);
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+    try {
+      (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Safe fallback
+    }
   };
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
@@ -544,7 +583,7 @@ export function ActiveCapsuleUnroller({
       try {
         (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
       } catch {
-        // Safe
+        // Safe fallback
       }
     }
   };
