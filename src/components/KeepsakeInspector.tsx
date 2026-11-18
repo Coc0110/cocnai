@@ -236,6 +236,20 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     }
 
     // 4. Tính toán tư thế hiển thị khi Inspect (trước ống kính camera)
+    const persp = state.camera as THREE.PerspectiveCamera;
+    const fovRad = THREE.MathUtils.degToRad(persp.fov || 50);
+    const visibleHeight = 2 * inspectDist * Math.tan(fovRad / 2);
+    const aspect = state.size.width / Math.max(1, state.size.height);
+    const visibleWidth = visibleHeight * aspect;
+    const currentMinDim = Math.min(visibleWidth, visibleHeight);
+    setMinVisibleDim(currentMinDim);
+
+    const baseTargetSize = (item.radius || 0.65) * (item.id === 'glass-bottle' ? 2.5 : 2.1);
+    const fitScaleFactor = item.id === 'glass-bottle' ? 0.76 : 0.56;
+    const fitScale = (currentMinDim * fitScaleFactor) / baseTargetSize;
+    const effectiveZoom = activeLetterId !== null ? 1.0 : zoomScale;
+    const finalScale = fitScale * effectiveZoom;
+
     const floatY = Math.sin(elapsed * 1.7) * 0.045;
     const floatX = Math.cos(elapsed * 1.15) * 0.028;
 
@@ -244,7 +258,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
     let inspectTargetZ = 0;
 
     if (item.id === 'glass-bottle') {
-      inspectTargetZ = activeLetterId !== null ? -1.15 : 0;
+      inspectTargetZ = activeLetterId !== null
+        ? -1.15 * (Math.tan(fovRad / 2) / Math.tan(THREE.MathUtils.degToRad(25)))
+        : 0;
     }
 
     // Rung lắc thân bình khi người dùng lắc thiết bị di động
@@ -265,20 +281,6 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
 
     _tempEuler.set(rotX, rotY, rotZ, 'XYZ');
     _tempTargetQuat.setFromEuler(_tempEuler);
-
-    // Tự động co giãn theo khung hình thực tế để không bị tràn màn hình
-    const persp = state.camera as THREE.PerspectiveCamera;
-    const fovRad = THREE.MathUtils.degToRad(persp.fov || 50);
-    const visibleHeight = 2 * inspectDist * Math.tan(fovRad / 2);
-    const aspect = state.size.width / Math.max(1, state.size.height);
-    const visibleWidth = visibleHeight * aspect;
-    const currentMinDim = Math.min(visibleWidth, visibleHeight);
-    setMinVisibleDim(currentMinDim);
-
-    const baseTargetSize = (item.radius || 0.65) * (item.id === 'glass-bottle' ? 2.5 : 2.1);
-    const fitScaleFactor = item.id === 'glass-bottle' ? 0.76 : 0.56;
-    const fitScale = (currentMinDim * fitScaleFactor) / baseTargetSize;
-    const finalScale = fitScale * zoomScale;
 
     // 5. Hoạt ảnh bay vào (Open transition: 0.65s, easeOutCubic)
     if (openTRef.current < 1.0) {
@@ -638,6 +640,7 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         {/* Hoạt ảnh mở cuộn thư khi chọn viên nang */}
         {unrollerData && (
           <ActiveCapsuleUnroller
+            key={unrollerData.letter.id}
             letter={unrollerData.letter}
             localStartPos={unrollerData.localStartPos}
             localStartQuat={unrollerData.localStartQuat}
