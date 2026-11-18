@@ -11,6 +11,7 @@ import {
   animateSuppleBracelet,
   animateGlassBottleRope,
   animateGlassBottleCapsules,
+  animateHangingCharmString,
 } from '../utils/prepareKeepsakeScene';
 import { sharedEntityPositions } from '../utils/sharedEntityPositions';
 import { requestDeviceMotionPermission } from '../utils/deviceMotionPermission';
@@ -145,6 +146,9 @@ export function KeepsakeItem({ item }: KeepsakeItemProps): JSX.Element {
       if (item.id === 'glass-bottle') {
         animateGlassBottleRope(preparedScene, elapsed);
         animateGlassBottleCapsules(preparedScene, elapsed, delta);
+      }
+      if (item.id === 'hanging-charm') {
+        animateHangingCharmString(preparedScene, elapsed, delta);
       }
     }
   });

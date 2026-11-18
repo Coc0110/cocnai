@@ -1,8 +1,10 @@
 export interface KeepsakeManifestItem {
   id: string;
+  name?: string;
   url: string;
   radius: number;
   initialPosition: [number, number, number];
+  scale?: number;
 }
 
 export type CompanionId = 'froakie' | 'deerling';

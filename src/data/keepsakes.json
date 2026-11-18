@@ -13,8 +13,17 @@
   },
   {
     "id": "love-letter",
+    "name": "Bức thư tình yêu",
     "url": "/models/keepsakes/love-letter.glb",
     "radius": 0.65,
     "initialPosition": [0.0, 0.15, 0.8]
+  },
+  {
+    "id": "hanging-charm",
+    "name": "Kỷ vật treo lơ lửng",
+    "url": "/models/keepsakes/hanging-charm.glb",
+    "initialPosition": [-1.55, 1.35, -0.65],
+    "scale": 1.55,
+    "radius": 0.72
   }
 ]

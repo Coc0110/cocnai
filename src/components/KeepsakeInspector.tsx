@@ -9,6 +9,7 @@ import {
   animateSuppleBracelet,
   animateGlassBottleRope,
   animateGlassBottleCapsules,
+  animateHangingCharmString,
 } from '../utils/prepareKeepsakeScene';
 import { ActiveCapsuleUnroller } from './ActiveCapsuleUnroller';
 import { requestDeviceMotionPermission } from '../utils/deviceMotionPermission';
@@ -226,6 +227,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         animateGlassBottleRope(preparedScene, elapsed);
         animateGlassBottleCapsules(preparedScene, elapsed, delta);
       }
+      if (item.id === 'hanging-charm') {
+        animateHangingCharmString(preparedScene, elapsed, delta);
+      }
 
       if (t >= 1.0) {
         clearSelection();
@@ -349,6 +353,9 @@ function InspectedModel({ item }: { item: KeepsakeManifestItem }) {
         corkNode.position.lerp(targetPos, Math.min(1, delta * 5.0));
         corkNode.rotation.z = THREE.MathUtils.lerp(corkNode.rotation.z, targetRotZ, Math.min(1, delta * 5.0));
       }
+    }
+    if (item.id === 'hanging-charm') {
+      animateHangingCharmString(preparedScene, elapsed, delta);
     }
   });
 

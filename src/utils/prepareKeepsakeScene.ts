@@ -168,6 +168,112 @@ export function animateSuppleBracelet(root: THREE.Object3D, elapsed: number): vo
   posAttr.needsUpdate = true;
 }
 
+// Scratch vectors cho tính toán quán tính và chuyển động sợi dây của hanging-charm
+const _curCharmWorldPos = new THREE.Vector3();
+const _curCharmWorldQuat = new THREE.Quaternion();
+const _invCharmWorldQuat = new THREE.Quaternion();
+const _charmWorldDelta = new THREE.Vector3();
+const _charmDeltaQuat = new THREE.Quaternion();
+const _charmRotLever = new THREE.Vector3();
+const _charmTargetTrail = new THREE.Vector3();
+const _leverArm = new THREE.Vector3(0, -0.35, 0);
+
+// Cập nhật hiệu ứng sợi dây phía dưới uốn lượn chữ S trong không trọng lực và kéo trễ quán tính
+export function animateHangingCharmString(scene: THREE.Object3D, elapsed: number, delta = 0.016): void {
+  let mesh = scene.userData.charmMesh as THREE.Mesh | undefined;
+  if (!mesh) {
+    mesh = (scene.children[0]?.userData?.charmMesh as THREE.Mesh | undefined);
+  }
+  if (!mesh) {
+    scene.traverse((child) => {
+      if (!mesh && (child as THREE.Mesh).isMesh && (child as THREE.Mesh).geometry?.userData?.stringIndices) {
+        mesh = child as THREE.Mesh;
+        scene.userData.charmMesh = mesh;
+      }
+    });
+  }
+  if (!mesh) return;
+
+  const geo = mesh.geometry as THREE.BufferGeometry;
+  const stringIndices = geo.userData.stringIndices as Uint32Array | undefined;
+  const stringOrigCoords = geo.userData.stringOrigCoords as Float32Array | undefined;
+  const posAttr = geo.attributes.position as THREE.BufferAttribute;
+  if (!stringIndices || !stringOrigCoords || !posAttr) return;
+
+  // Khởi tạo userData theo dõi vị trí và xoay thế giới nếu chưa có
+  if (!scene.userData.lastWorldPos) {
+    scene.userData.lastWorldPos = new THREE.Vector3();
+    scene.userData.lastWorldQuat = new THREE.Quaternion();
+    scene.userData.trailOffset = new THREE.Vector3();
+    scene.getWorldPosition(scene.userData.lastWorldPos);
+    scene.getWorldQuaternion(scene.userData.lastWorldQuat);
+  }
+
+  scene.getWorldPosition(_curCharmWorldPos);
+  scene.getWorldQuaternion(_curCharmWorldQuat);
+
+  const lastWorldPos = scene.userData.lastWorldPos as THREE.Vector3;
+  const lastWorldQuat = scene.userData.lastWorldQuat as THREE.Quaternion;
+  const trailOffset = scene.userData.trailOffset as THREE.Vector3;
+
+  _invCharmWorldQuat.copy(_curCharmWorldQuat).invert();
+
+  // Dịch chuyển tịnh tiến: worldDelta đổi sang local bằng applyQuaternion(curWorldQuat^-1)
+  _charmWorldDelta.copy(_curCharmWorldPos).sub(lastWorldPos);
+  _charmWorldDelta.applyQuaternion(_invCharmWorldQuat);
+
+  // Dịch chuyển do xoay vật phẩm: deltaQuat = curWorldQuat^-1 * lastWorldQuat
+  // áp dụng lên vector cánh tay đòn (0, -0.35, 0)
+  _charmDeltaQuat.copy(_invCharmWorldQuat).multiply(lastWorldQuat);
+  _charmRotLever.copy(_leverArm).applyQuaternion(_charmDeltaQuat).sub(_leverArm);
+
+  // Cập nhật vector quán tính trailOffset hướng ngược chiều di chuyển
+  const dt = Math.max(0.001, Math.min(0.1, delta));
+  _charmTargetTrail.set(
+    -(_charmWorldDelta.x * 2.2 + _charmRotLever.x * 1.8) / dt,
+    -(_charmWorldDelta.y * 1.5 + _charmRotLever.y * 1.2) / dt,
+    -(_charmWorldDelta.z * 2.2 + _charmRotLever.z * 1.8) / dt,
+  );
+  _charmTargetTrail.clampLength(0, 0.26);
+
+  trailOffset.lerp(_charmTargetTrail, Math.min(1, delta * 9.0));
+
+  lastWorldPos.copy(_curCharmWorldPos);
+  lastWorldQuat.copy(_curCharmWorldQuat);
+
+  const arr = posAttr.array as Float32Array;
+  const count = stringIndices.length;
+
+  for (let i = 0; i < count; i++) {
+    const vertexIndex = stringIndices[i];
+    const cIdx = i * 3;
+    const x0 = stringOrigCoords[cIdx];
+    const y0 = stringOrigCoords[cIdx + 1];
+    const z0 = stringOrigCoords[cIdx + 2];
+
+    const s = Math.min(1, Math.max(0, (0.165 - y0) / 0.665));
+    const w = Math.pow(s, 1.45);
+
+    // Uốn lượn chữ S không trọng lực (không duỗi thẳng):
+    const waveX = w * 0.055 * Math.sin(elapsed * 1.6 - s * 4.2) + s * (1 - s) * 0.038 * Math.cos(elapsed * 2.2);
+    const waveZ = w * 0.048 * Math.cos(elapsed * 1.4 - s * 3.8) + s * (1 - s) * 0.032 * Math.sin(elapsed * 1.9);
+    const slackY = w * (0.048 + 0.018 * Math.sin(elapsed * 1.8 + s * 3.5));
+
+    // Cộng quán tính bị kéo theo (trailOffset) và bù chiều dài dây khi bị kéo ngang:
+    const dx = waveX + trailOffset.x * w;
+    const dz = waveZ + trailOffset.z * w;
+    const bendShorten = (dx * dx + dz * dz) * 0.45;
+    const dy = slackY + trailOffset.y * w * 0.5 - bendShorten;
+
+    const vIdx3 = vertexIndex * 3;
+    arr[vIdx3] = x0 + dx;
+    arr[vIdx3 + 1] = y0 + dy;
+    arr[vIdx3 + 2] = z0 + dz;
+  }
+
+  posAttr.needsUpdate = true;
+}
+
 let cachedRopeTexture: THREE.CanvasTexture | null = null;
 
 function getJuteRopeTexture(): THREE.CanvasTexture | null {
@@ -966,6 +1072,78 @@ export function prepareKeepsakeScene(
     });
   }
 
+  // 4. KỶ VẬT TREO LƠ LỬNG (hanging-charm): Tách InterleavedBuffer, lọc đỉnh sợi dây phía dưới (y0 < 0.165)
+  if (item.id === 'hanging-charm') {
+    cloned.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const srcGeo = mesh.geometry;
+        const srcPos = srcGeo.attributes.position;
+        const srcUv = srcGeo.attributes.uv;
+        const count = srcPos.count;
+
+        const cleanPos = new Float32Array(count * 3);
+        const cleanUv = new Float32Array(count * 2);
+
+        for (let i = 0; i < count; i++) {
+          cleanPos[i * 3] = srcPos.getX(i);
+          cleanPos[i * 3 + 1] = srcPos.getY(i);
+          cleanPos[i * 3 + 2] = srcPos.getZ(i);
+          if (srcUv) {
+            cleanUv[i * 2] = srcUv.getX(i);
+            cleanUv[i * 2 + 1] = srcUv.getY(i);
+          }
+        }
+
+        const geo = new THREE.BufferGeometry();
+        if (srcGeo.index) {
+          geo.setIndex(srcGeo.index.clone());
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(cleanPos, 3));
+        if (srcUv) {
+          geo.setAttribute('uv', new THREE.BufferAttribute(cleanUv, 2));
+        }
+
+        // Lọc trước danh sách các đỉnh thuộc sợi dây phía dưới (y0 < 0.165)
+        const stringIndicesArr: number[] = [];
+        const stringCoordsArr: number[] = [];
+
+        for (let i = 0; i < count; i++) {
+          const y0 = cleanPos[i * 3 + 1];
+          if (y0 < 0.165) {
+            stringIndicesArr.push(i);
+            stringCoordsArr.push(cleanPos[i * 3], y0, cleanPos[i * 3 + 2]);
+          }
+        }
+
+        geo.userData.stringIndices = new Uint32Array(stringIndicesArr);
+        geo.userData.stringOrigCoords = new Float32Array(stringCoordsArr);
+
+        geo.computeVertexNormals();
+
+        mesh.geometry = geo;
+        wrapper.userData.charmMesh = mesh;
+        cloned.userData.charmMesh = mesh;
+
+        const oldMat = mesh.material as THREE.MeshStandardMaterial;
+        if (oldMat?.map) {
+          oldMat.map.colorSpace = THREE.SRGBColorSpace;
+          oldMat.map.needsUpdate = true;
+        }
+        mesh.material = new THREE.MeshStandardMaterial({
+          map: oldMat?.map || null,
+          roughnessMap: oldMat?.roughnessMap || null,
+          metalnessMap: oldMat?.metalnessMap || null,
+          roughness: 0.45,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+        });
+      }
+    });
+
+    animateHangingCharmString(cloned, 0, 0.016);
+  }
+
   // 3. Căn tâm (0, 0, 0) và chuẩn hóa kích thước
   cloned.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(cloned);
@@ -978,6 +1156,10 @@ export function prepareKeepsakeScene(
 
   cloned.scale.multiplyScalar(scale);
   cloned.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+
+  if (cloned.userData.charmMesh) {
+    wrapper.userData.charmMesh = cloned.userData.charmMesh;
+  }
 
   wrapper.add(cloned);
   return wrapper;
